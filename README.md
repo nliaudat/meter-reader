@@ -9,14 +9,17 @@ Final Meter Reading:
 
 ## Goals : 
 
-* Make a independant from hardware meter reading solution
+* Read meter (water, gas, electricity)
+* Harware independant
 * Keep simple
 
 ## Process : 
 
 * Get image from any camera (local or http)
+* Setup a python compatible apps to process the image (docker, falsk or other python compatible apps)
 * [onetime] set regions to process
 * Produce digits from image
+  
 
 ## Solutions 1 - python only : 
 `pip install -r requirements.txt`
@@ -37,6 +40,10 @@ Final Meter Reading:
 - [onetime]Go to  Draw Regions> input you image (http or local) and set regions
    
 - Return to index and process you image*
+  
+## Todos: 
+* test and improve
+* make a hassio component
   
 
 ## Sources and inspiration: 
