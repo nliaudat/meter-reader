@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meter Reader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <h1>Meter Reader</h1>
+    <nav>
+        <a href="{{ url_for('index') }}">Home</a> |
+        <a href="{{ url_for('draw_regions') }}">Draw Regions</a>
+    </nav>
+    <form method="POST" enctype="multipart/form-data" onsubmit="return validateForm()">
+        <label for="image_url">Image URL:</label>
+        <input type="text" id="image_url" name="image_url" placeholder="Enter image URL">
+        <br>
+        <label for="image_file">Or upload an image:</label>
+        <input type="file" id="image_file" name="image_file">
+        <br>
+        <button type="submit" aria-label="Process Image">Process</button>
+    </form>
+
+    {% if result_image %}
+        <h2>Results</h2>
+        <img src="{{ url_for('static', filename=result_image) }}" alt="Processed Meter Image">
+        <h3>Raw Readings:</h3>
+        <ul>
+            {% for reading in raw_readings %}
+                <li>{{ "%.2f"|format(reading) }}</li>
+            {% endfor %}
+        </ul>
+        <h3>Processed Readings:</h3>
+        <ul>
+            {% for reading in processed_readings %}
+                <li>{{ reading }}</li>
+            {% endfor %}
+        </ul>
+        <h3>Final Meter Reading:</h3>
+        <p>{{ final_reading }}</p>
+    {% endif %}
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <ul class="flashes">
+                {% for category, message in messages %}
+                    <li class="{{ category }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+
+    <script>
+        function validateForm() {
+            const imageUrl = document.getElementById("image_url").value;
+            const imageFile = document.getElementById("image_file").files[0];
+            if (!imageUrl && !imageFile) {
+                alert("Please provide an image URL or upload a file.");
+                return false;
+            }
+            return true;
+        }
+    </script>
+</body>
+</html>

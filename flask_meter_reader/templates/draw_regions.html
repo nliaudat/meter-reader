@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Draw Regions</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        canvas {
+            border: 1px solid black;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+<body>
+    <h1>Draw Regions</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <label for="image_url">Image URL:</label>
+        <input type="text" id="image_url" name="image_url" placeholder="Enter image URL">
+        <br>
+        <label for="image_file">Or upload an image:</label>
+        <input type="file" id="image_file" name="image_file">
+        <br>
+        <button type="submit">Load Image</button>
+    </form>
+
+    {% if image_source %}
+        <h2>Draw Rectangles on the Image</h2>
+        <img id="image" src="{{ url_for('static', filename=image_source) }}" alt="Image" style="display: none;">
+        <canvas id="canvas"></canvas>
+        <br>
+        <button id="saveButton">Save Regions</button>
+    {% endif %}
+
+    <script>
+        const image = document.getElementById("image");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        let regions = [];
+        let startX, startY, isDrawing = false;
+
+        // Load the image onto the canvas
+        image.onload = () => {
+            canvas.width = image.width;
+            canvas.height = image.height;
+            redrawCanvas();
+        };
+
+        // Function to redraw the canvas
+        function redrawCanvas() {
+            // Clear the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw the image
+            ctx.drawImage(image, 0, 0);
+
+            // Draw all regions
+            regions.forEach(region => {
+                const [x1, y1, x2, y2] = region;
+                ctx.strokeStyle = "green";
+                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            });
+        }
+
+        // Handle mouse events for drawing
+        canvas.addEventListener("mousedown", (e) => {
+            startX = e.offsetX;
+            startY = e.offsetY;
+            isDrawing = true;
+        });
+
+        canvas.addEventListener("mousemove", (e) => {
+            if (isDrawing) {
+                // Redraw the canvas
+                redrawCanvas();
+
+                // Draw the current rectangle being drawn
+                const x1 = Math.min(startX, e.offsetX);
+                const y1 = Math.min(startY, e.offsetY);
+                const x2 = Math.max(startX, e.offsetX);
+                const y2 = Math.max(startY, e.offsetY);
+                ctx.strokeStyle = "green";
+                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            }
+        });
+
+        canvas.addEventListener("mouseup", (e) => {
+            if (isDrawing) {
+                isDrawing = false;
+
+                // Normalize coordinates
+                const x1 = Math.min(startX, e.offsetX);
+                const y1 = Math.min(startY, e.offsetY);
+                const x2 = Math.max(startX, e.offsetX);
+                const y2 = Math.max(startY, e.offsetY);
+
+                // Save the normalized region
+                regions.push([x1, y1, x2, y2]);
+
+                // Redraw the canvas with all regions
+                redrawCanvas();
+            }
+        });
+
+        // Save regions to the server
+        document.getElementById("saveButton").addEventListener("click", () => {
+            fetch("/save_regions", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ regions }),
+            }).then(() => window.location.href = "/");
+        });
+    </script>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <ul class="flashes">
+                {% for category, message in messages %}
+                    <li class="{{ category }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+</body>
+</html>

@@ -1,0 +1,6 @@
+opencv-python
+tensorflow
+numpy
+logging
+argparse
+requests
