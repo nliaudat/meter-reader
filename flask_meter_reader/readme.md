@@ -39,7 +39,7 @@
 1. **Clone the Repository**:
    ```bash
    git clone https://github.com/nliaudat/meter-reader.git
-   cd meter-reader
+   cd meter-reader/flask_meter_reader
    ```
 
 2. **Set Up a Virtual Environment**:
