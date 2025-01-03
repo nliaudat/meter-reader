@@ -45,7 +45,7 @@ Final Meter Reading:
   
 ## Todos: 
 * test and improve
-* make a hassio component
+* make a hassio component (not actually possible cause nor tflite-runtime nor tensorflow supports python 3.13)
   
 
 ## Sources and inspiration: 
