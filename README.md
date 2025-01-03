@@ -21,7 +21,7 @@ Final Meter Reading:
 * Produce digits from image
   
 
-## Solutions 1 - python only : 
+## Solutions 1 - python only : (tested on Python 3.12.3)
 `pip install -r requirements.txt`
 
 `python draw_regions.py`
