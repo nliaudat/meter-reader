@@ -1,9 +1,10 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 import cv2
 import numpy as np
 import tensorflow as tf
 import os
 import requests
+import json
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -31,26 +32,23 @@ class MeterReader:
         meter_reading = np.argmax(output[0]) / 10
         return meter_reading
 
-# Load regions from a text file
+# Load regions from a JSON file
 def load_regions(file_path):
     regions = []
     try:
         with open(file_path, "r") as f:
-            for line in f:
-                x1, y1, x2, y2 = map(int, line.strip().split(','))
-                regions.append((x1, y1, x2, y2))
+            regions = json.load(f)
     except FileNotFoundError:
         flash("Regions file not found.", "error")
-    except ValueError:
-        flash("Invalid format in regions file. Expected 4 integers per line.", "error")
+    except json.JSONDecodeError:
+        flash("Invalid JSON format in regions file.", "error")
     return regions
 
-# Save regions to a text file
+# Save regions to a JSON file
 def save_regions(file_path, regions):
     try:
         with open(file_path, "w") as f:
-            for region in regions:
-                f.write(f"{region[0]},{region[1]},{region[2]},{region[3]}\n")
+            json.dump(regions, f)
         flash("Regions saved successfully.", "success")
     except Exception as e:
         flash(f"Error saving regions: {e}", "error")
@@ -124,7 +122,7 @@ def index():
             return redirect(url_for("index"))
 
         # Load regions
-        regions = load_regions("regions.txt")
+        regions = load_regions("regions.json")
         if not regions:
             flash("No regions defined. Please draw regions first.", "error")
             return redirect(url_for("index"))
@@ -231,9 +229,9 @@ def save_regions_route():
         flash("No regions provided.", "error")
         return redirect(url_for("draw_regions"))
 
-    # Save regions to the file
-    save_regions("regions.txt", regions)
-    return redirect(url_for("index"))
+    # Save regions to the JSON file
+    save_regions("regions.json", regions)
+    return jsonify({"message": "Regions saved successfully."})
 
 # Run the app
 if __name__ == "__main__":
