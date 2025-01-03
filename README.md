@@ -10,7 +10,7 @@ Final Meter Reading:
 ## Goals : 
 
 * Read meter (water, gas, electricity)
-* Harware independant
+* Hardware independant (works with any camera that can produce a fixed image)
 * Keep simple
 
 ## Process : 
