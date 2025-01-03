@@ -16,7 +16,7 @@ Final Meter Reading:
 ## Process : 
 
 * Get image from any camera (local or http)
-* Setup a python compatible apps to process the image (docker, falsk or other python compatible apps)
+* Setup a python compatible apps to process the image (docker, flask or other python compatible apps)
 * [onetime] set regions to process
 * Produce digits from image
   
