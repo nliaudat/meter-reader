@@ -7,6 +7,8 @@ import argparse
 import requests
 import os
 import sys
+import json
+import ast
 
 # Set up logging for better output control
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +42,9 @@ class MeterReader:
         Returns:
             numpy.ndarray: Preprocessed image (normalized, resized).
         """
+        if image is None or image.size == 0:
+            raise ValueError("Invalid or empty image provided for preprocessing.")
+
         # Resize the image to the model's input size
         image = cv2.resize(image, (self.input_shape[1], self.input_shape[0]))
 
@@ -107,28 +112,32 @@ class MeterReader:
         return image
 
 
-def load_regions(file_path):
+def load_regions(regions_source):
     """
-    Load regions from a text file.
+    Load regions from a file or a list of coordinates.
     
     Args:
-        file_path (str): Path to the text file containing regions.
+        regions_source (str): Path to the JSON file or a string representation of a list of regions.
         
     Returns:
         list: List of tuples defining the regions (x1, y1, x2, y2).
     """
-    regions = []
     try:
-        with open(file_path, "r") as f:
-            for line in f:
-                # Parse the coordinates from the file
-                x1, y1, x2, y2 = map(int, line.strip().split(','))
-                regions.append((x1, y1, x2, y2))
-    except FileNotFoundError:
-        logging.error(f"File {file_path} not found.")
-    except ValueError:
-        logging.error(f"Invalid format in {file_path}. Expected 4 integers per line.")
-    return regions
+        # Check if the input is a file
+        if os.path.exists(regions_source):
+            with open(regions_source, "r") as f:
+                regions = json.load(f)
+        else:
+            # Assume the input is a string representation of a list
+            # Remove any outer quotes and parse the list
+            regions_source = regions_source.strip().strip('"').strip("'")
+            regions = ast.literal_eval(regions_source)
+        
+        # Ensure each region has 4 values (x1, y1, x2, y2)
+        return [tuple(region) for region in regions if len(region) == 4]
+    except (FileNotFoundError, json.JSONDecodeError, SyntaxError, ValueError) as e:
+        logging.error(f"Error loading regions: {e}")
+        return []
 
 
 def load_image(image_source):
@@ -177,8 +186,8 @@ def validate_args(args):
         logging.error(f"Model file {args.model} not found.")
         return False
 
-    if not os.path.exists(args.regions):
-        logging.error(f"Regions file {args.regions} not found.")
+    if not args.regions:
+        logging.error("No regions provided.")
         return False
 
     return True
@@ -188,16 +197,16 @@ def print_help():
     """
     Print help information for the script.
     """
-    print("Usage: python meter_reading.py --model MODEL_PATH --regions REGIONS_FILE --image_source IMAGE_SOURCE [--no-gui] [--no-output-image]")
+    print("Usage: python meter_reading.py --model MODEL_PATH --regions REGIONS_SOURCE --image_source IMAGE_SOURCE [--no-gui] [--no-output-image]")
     print("\nArguments:")
     print("  --model          Path to the TensorFlow Lite model file.")
-    print("  --regions        Path to the regions file (text file with coordinates).")
+    print("  --regions        Path to the JSON file or a string representation of a list of regions (e.g., \"[[x1,y1,x2,y2], [x1,y1,x2,y2]]\").")
     print("  --image_source   Path to the local image file or URL of the remote image.")
     print("  --no-gui         Disable GUI (no image display).")
     print("  --no-output-image Do not save the output image with annotations.")
     print("\nExample:")
-    print("  python meter_reading.py --model model.tflite --regions regions.txt --image_source http://192.168.1.113/img_tmp/alg.jpg")
-    print("  python meter_reading.py --model model.tflite --regions regions.txt --image_source /path/to/local/image.jpg --no-gui --no-output-image")
+    print("  python meter_reading.py --model model.tflite --regions regions.json --image_source http://192.168.1.113/img_tmp/alg.jpg")
+    print("  python meter_reading.py --model model.tflite --regions \"[[10,10,50,50], [60,60,100,100]]\" --image_source sample.jpg")
 
 
 def main():
@@ -205,7 +214,7 @@ def main():
     parser = argparse.ArgumentParser(description="Meter Reader", add_help=False)
     parser.add_argument("--help", action="store_true", help="Show this help message and exit")
     parser.add_argument("--model", default="model.tflite", help="Path to the TensorFlow Lite model")
-    parser.add_argument("--regions", default="regions.txt", help="Path to the regions file")
+    parser.add_argument("--regions", required=True, help="Path to the JSON file or a string representation of a list of regions")
     parser.add_argument("--image_source", default="sample.jpg", help="Path to the local image file or URL of the remote image")
     parser.add_argument("--no-gui", action="store_true", help="Disable GUI (no image display)")
     parser.add_argument("--no-output-image", action="store_true", help="Do not save the output image with annotations")
@@ -238,33 +247,53 @@ def main():
         logging.error(f"Unable to load image from {args.image_source}.")
         sys.exit(1)
 
-    # Load regions from the text file
+    # Load regions from the file or list
     regions = load_regions(args.regions)
+    if not regions:
+        logging.error("No valid regions provided.")
+        sys.exit(1)
 
     # Extract the regions from the image
-    image_regions = [image[y1:y2, x1:x2] for (x1, y1, x2, y2) in regions]
+    image_regions = []
+    for (x1, y1, x2, y2) in regions:
+        # Ensure the region is within the image bounds
+        if x1 < 0 or y1 < 0 or x2 > image.shape[1] or y2 > image.shape[0]:
+            logging.warning(f"Region {[x1, y1, x2, y2]} is outside the image bounds. Skipping.")
+            continue
+        region = image[y1:y2, x1:x2]
+        if region.size == 0:
+            logging.warning(f"Region {[x1, y1, x2, y2]} is empty. Skipping.")
+            continue
+        image_regions.append(region)
+
+    if not image_regions:
+        logging.error("No valid regions to process.")
+        sys.exit(1)
 
     # Predict the meter reading for each region
     raw_meter_readings = []  # Store raw readings
     processed_meter_readings = []  # Store processed readings
     for region in image_regions:
-        raw_reading = meter_reader.predict(region)
-        raw_meter_readings.append(raw_reading)
+        try:
+            raw_reading = meter_reader.predict(region)
+            raw_meter_readings.append(raw_reading)
 
-        # Preprocess the reading
-        processed_reading = round(raw_reading)  # Round to the nearest integer
-        if processed_reading == 10:  # Handle the special case
-            processed_reading = 0
-        processed_meter_readings.append(processed_reading)
+            # Preprocess the reading
+            processed_reading = round(raw_reading)  # Round to the nearest integer
+            if processed_reading == 10:  # Handle the special case
+                processed_reading = 0
+            processed_meter_readings.append(processed_reading)
+        except Exception as e:
+            logging.error(f"Error processing region: {e}")
+            continue
 
     # Concatenate the processed meter readings into a single integer
     concatenated_readings = int(''.join(map(str, processed_meter_readings)))
 
     # Print the raw and final results
-    if not args.no_gui:
-        logging.info(f"Raw Meter Readings: {raw_meter_readings}")
-        logging.info(f"Processed Meter Readings: {processed_meter_readings}")
-        logging.info(f"Final Meter Reading: {concatenated_readings}")
+    logging.info(f"Raw Meter Readings: {raw_meter_readings}")
+    logging.info(f"Processed Meter Readings: {processed_meter_readings}")
+    logging.info(f"Final Meter Reading: {concatenated_readings}")
 
     # Visualize the results (if not disabled)
     if not args.no_output_image:
@@ -272,13 +301,10 @@ def main():
         cv2.imwrite("result.jpg", result_image)
 
     # Display the result (if not disabled)
-    if not args.no_gui: #and not args.no_output_image:
+    if not args.no_gui and not args.no_output_image:
         cv2.imshow("Meter Readings", result_image)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
-        
-    # Print the final result
-    print(concatenated_readings)
 
 
 if __name__ == "__main__":

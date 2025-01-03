@@ -1,58 +1,129 @@
-###### USAGE : 
-    # Replace "alg.jpg" with the path to your image.
-    # Run the script.
-    # Draw regions on the image by clicking and dragging the mouse.
-    # Press q to quit and save the regions to regions.txt.
-
+# draw_regions.py
 import cv2
+import json
 
 # Global variables
 regions = []
 drawing = False
 ix, iy = -1, -1
 
-# Mouse callback function
-def draw_region(event, x, y, flags, param):
-    global ix, iy, drawing, regions
+def normalize_region(x1, y1, x2, y2):
+    """
+    Normalize a region to ensure (x1, y1) is the top-left corner and (x2, y2) is the bottom-right corner.
+    
+    Args:
+        x1, y1, x2, y2: Coordinates of the region.
+        
+    Returns:
+        tuple: Normalized region (x1, y1, x2, y2).
+    """
+    if x1 > x2:
+        x1, x2 = x2, x1  # Swap x1 and x2 if x1 > x2
+    if y1 > y2:
+        y1, y2 = y2, y1  # Swap y1 and y2 if y1 > y2
+    return (x1, y1, x2, y2)
+
+def draw_rectangle(event, x, y, flags, param):
+    """Callback function to draw rectangles on the image."""
+    global regions, drawing, ix, iy, img
 
     if event == cv2.EVENT_LBUTTONDOWN:
+        # Start drawing
         drawing = True
         ix, iy = x, y
 
+    elif event == cv2.EVENT_MOUSEMOVE:
+        # Update the rectangle while dragging
+        if drawing:
+            # Create a copy of the image to draw on
+            display_image = img.copy()
+            # Normalize the coordinates to ensure the rectangle is drawn correctly
+            x1, y1, x2, y2 = normalize_region(ix, iy, x, y)
+            # Draw the rectangle
+            cv2.rectangle(display_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            # Show the updated image
+            cv2.imshow("Draw Regions", display_image)
+
     elif event == cv2.EVENT_LBUTTONUP:
+        # Finish drawing
         drawing = False
-        regions.append((ix, iy, x, y))  # Save the region (x1, y1, x2, y2)
-        cv2.rectangle(img, (ix, iy), (x, y), (0, 255, 0), 2)  # Draw the rectangle
-        cv2.imshow("Image", img)
+        # Normalize the coordinates to ensure the region is stored correctly
+        x1, y1, x2, y2 = normalize_region(ix, iy, x, y)
+        # Save the region (x1, y1, x2, y2)
+        regions.append([x1, y1, x2, y2])
+        # Draw the final rectangle on the original image
+        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.imshow("Draw Regions", img)
+        print(f"Region added: {[x1, y1, x2, y2]}")
 
-# Load an image
-image_path = "sample.jpg"  # Replace with your image path
-img = cv2.imread(image_path)
+def show_instructions(image):
+    """
+    Display instructions on the image.
+    
+    Args:
+        image (numpy.ndarray): The image to display instructions on.
+    """
+    instructions = [
+        "Instructions:",
+        "1. Click and drag to draw a rectangle.",
+        "2. Press 's' to save regions after last draw",
+        "3. Press 'q' to quit and save."
+    ]
+    y_offset = 30
+    for line in instructions:
+        cv2.putText(image, line, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        y_offset += 20
 
-if img is None:
-    print(f"Error: Unable to load image at {image_path}")
-    exit()
+def main():
+    global img
 
-# Create a window and bind the mouse callback function
-cv2.namedWindow("Image")
-cv2.setMouseCallback("Image", draw_region)
+    # Load the image
+    image_path = "sample.jpg"  # Replace with your image path
+    img = cv2.imread(image_path)
+    if img is None:
+        print(f"Error: Unable to load image from {image_path}.")
+        return
 
-# Display the image and wait for user input
-while True:
-    cv2.imshow("Image", img)
-    key = cv2.waitKey(1) & 0xFF
+    # Create a window and set the mouse callback
+    cv2.namedWindow("Draw Regions")
+    cv2.setMouseCallback("Draw Regions", draw_rectangle)
 
-    # Press 'q' to quit and save the regions
-    if key == ord('q'):
-        break
+    # Display helper prompt in the console
+    print("=== Instructions ===")
+    print("1. Click and drag to draw a rectangle.")
+    print("2. Press 's' to save regions after last draw.")
+    print("3. Press 'q' to quit and save.")
 
-# Save the regions to a text file
-output_file = "regions.txt"
-with open(output_file, "w") as f:
-    for region in regions:
-        f.write(f"{region[0]},{region[1]},{region[2]},{region[3]}\n")
+    while True:
+        # Display the image with regions and instructions
+        display_image = img.copy()
+        show_instructions(display_image)
+        cv2.imshow("Draw Regions", display_image)
 
-print(f"Regions saved to {output_file}")
+        # Wait for key press
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("q"):  # Quit
+            if regions:
+                # Prompt the user to save before quitting
+                save = input("Do you want to save the regions before quitting? (y/n): ").strip().lower()
+                if save == "y":
+                    # Save regions as JSON
+                    with open("regions.json", "w") as f:
+                        json.dump(regions, f)
+                    print("Regions saved to regions.json")
+            break
+        elif key == ord("s"):  # Save regions
+            if regions:
+                # Save regions as JSON
+                with open("regions.json", "w") as f:
+                    json.dump(regions, f)
+                print("Regions saved to regions.json")
+            else:
+                print("No regions to save.")
 
-# Clean up
-cv2.destroyAllWindows()
+    # Clean up
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
