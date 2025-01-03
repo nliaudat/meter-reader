@@ -30,7 +30,7 @@ Final Meter Reading:
   
 `python meter_reading.py`
 
-`optional arguments : --image_source http://192.168.1.113/img_tmp/alg.jpg --model model.tflite --regions regions.txt`
+`optional arguments : --image_source http://192.168.1.113/img_tmp/alg.jpg --model model.tflite --regions regions.txt --no-gui --no-output-image`
 
 
 ## Solutions 2 - webapp - flask_meter_reader : 
