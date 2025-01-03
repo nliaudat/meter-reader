@@ -1,3 +1,4 @@
+# meter_reading.py
 import cv2
 import numpy as np
 import tensorflow as tf
@@ -187,14 +188,16 @@ def print_help():
     """
     Print help information for the script.
     """
-    print("Usage: python tflite_meter_reading.py --model MODEL_PATH --regions REGIONS_FILE --image_source IMAGE_SOURCE")
+    print("Usage: python meter_reading.py --model MODEL_PATH --regions REGIONS_FILE --image_source IMAGE_SOURCE [--no-gui] [--no-output-image]")
     print("\nArguments:")
-    print("  --model        Path to the TensorFlow Lite model file.")
-    print("  --regions      Path to the regions file (text file with coordinates).")
-    print("  --image_source Path to the local image file or URL of the remote image.")
+    print("  --model          Path to the TensorFlow Lite model file.")
+    print("  --regions        Path to the regions file (text file with coordinates).")
+    print("  --image_source   Path to the local image file or URL of the remote image.")
+    print("  --no-gui         Disable GUI (no image display).")
+    print("  --no-output-image Do not save the output image with annotations.")
     print("\nExample:")
-    print("  python tflite_meter_reading.py --model model.tflite --regions regions.txt --image_source http://192.168.1.113/img_tmp/alg.jpg")
-    print("  python tflite_meter_reading.py --model model.tflite --regions regions.txt --image_source /path/to/local/image.jpg")
+    print("  python meter_reading.py --model model.tflite --regions regions.txt --image_source http://192.168.1.113/img_tmp/alg.jpg")
+    print("  python meter_reading.py --model model.tflite --regions regions.txt --image_source /path/to/local/image.jpg --no-gui --no-output-image")
 
 
 def main():
@@ -204,6 +207,8 @@ def main():
     parser.add_argument("--model", default="model.tflite", help="Path to the TensorFlow Lite model")
     parser.add_argument("--regions", default="regions.txt", help="Path to the regions file")
     parser.add_argument("--image_source", default="sample.jpg", help="Path to the local image file or URL of the remote image")
+    parser.add_argument("--no-gui", action="store_true", help="Disable GUI (no image display)")
+    parser.add_argument("--no-output-image", action="store_true", help="Do not save the output image with annotations")
 
     # Parse the arguments
     args, _ = parser.parse_known_args()
@@ -256,18 +261,24 @@ def main():
     concatenated_readings = int(''.join(map(str, processed_meter_readings)))
 
     # Print the raw and final results
-    logging.info(f"Raw Meter Readings: {raw_meter_readings}")
-    logging.info(f"Processed Meter Readings: {processed_meter_readings}")
-    logging.info(f"Final Meter Reading: {concatenated_readings}")
+    if not args.no_gui:
+        logging.info(f"Raw Meter Readings: {raw_meter_readings}")
+        logging.info(f"Processed Meter Readings: {processed_meter_readings}")
+        logging.info(f"Final Meter Reading: {concatenated_readings}")
 
-    # Visualize the results
-    result_image = meter_reader.visualize(image, regions, raw_meter_readings, raw=True)
+    # Visualize the results (if not disabled)
+    if not args.no_output_image:
+        result_image = meter_reader.visualize(image, regions, raw_meter_readings, raw=True)
+        cv2.imwrite("result.jpg", result_image)
 
-    # Display the result
-    cv2.imwrite("result.jpg", result_image)
-    cv2.imshow("Meter Readings", result_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # Display the result (if not disabled)
+    if not args.no_gui: #and not args.no_output_image:
+        cv2.imshow("Meter Readings", result_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        
+    # Print the final result
+    print(concatenated_readings)
 
 
 if __name__ == "__main__":
