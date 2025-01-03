@@ -291,9 +291,10 @@ def main():
     concatenated_readings = int(''.join(map(str, processed_meter_readings)))
 
     # Print the raw and final results
-    logging.info(f"Raw Meter Readings: {raw_meter_readings}")
-    logging.info(f"Processed Meter Readings: {processed_meter_readings}")
-    logging.info(f"Final Meter Reading: {concatenated_readings}")
+    if not args.no_gui:
+        logging.info(f"Raw Meter Readings: {raw_meter_readings}")
+        logging.info(f"Processed Meter Readings: {processed_meter_readings}")
+        logging.info(f"Final Meter Reading: {concatenated_readings}")
 
     # Visualize the results (if not disabled)
     if not args.no_output_image:
@@ -301,7 +302,7 @@ def main():
         cv2.imwrite("result.jpg", result_image)
 
     # Display the result (if not disabled)
-    if not args.no_gui and not args.no_output_image:
+    if not args.no_gui: # and not args.no_output_image:
         cv2.imshow("Meter Readings", result_image)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
