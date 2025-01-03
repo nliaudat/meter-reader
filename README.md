@@ -41,7 +41,7 @@ Final Meter Reading:
 *- http://127.0.0.1:5000
 - [onetime]Go to  Draw Regions> input you image (http or local) and set regions
    
-- Return to index and process you image*
+- Return to index and process you image
   
 ## Todos: 
 * test and improve
