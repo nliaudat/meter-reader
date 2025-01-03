@@ -19,6 +19,9 @@
         <label for="image_file">Or upload an image:</label>
         <input type="file" id="image_file" name="image_file">
         <br>
+        <label for="regions_source">Regions (JSON file or list):</label>
+        <input type="text" id="regions_source" name="regions_source" placeholder="Enter regions as a list or JSON file path like regions.json">
+        <br>
         <button type="submit" aria-label="Process Image">Process</button>
     </form>
 
@@ -55,10 +58,18 @@
         function validateForm() {
             const imageUrl = document.getElementById("image_url").value;
             const imageFile = document.getElementById("image_file").files[0];
+            const regionsSource = document.getElementById("regions_source").value;
+
             if (!imageUrl && !imageFile) {
                 alert("Please provide an image URL or upload a file.");
                 return false;
             }
+
+            if (!regionsSource) {
+                alert("Please provide regions as a list or JSON file path.");
+                return false;
+            }
+
             return true;
         }
     </script>
