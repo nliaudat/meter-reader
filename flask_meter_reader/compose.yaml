@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  flask-app:
+    # image: python:3.11-slim
+    build: .  # Build the image using the Dockerfile in the current directory
+    container_name: flask-meter-reader
+    network_mode: 'host'
+    restart: unless-stopped
+    working_dir: /app
+    # flask requires SIGINT to stop gracefully
+    # (default stop signal from Compose is SIGTERM)
+    stop_signal: SIGINT    
+    volumes:
+      - /volume1/docker/flask-meter-reader:/app  # Map the local app directory to the container's /app directory
+    ports:
+      - "5000:5000"  # Map port 5000 on the host to port 5000 in the container
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+
+    

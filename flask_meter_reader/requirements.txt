@@ -1,5 +1,9 @@
-flask
-requests
-opencv-python
-numpy
-tensorflow
+flask==3.1.0
+requests==2.31.0
+opencv-python-headless==4.8.0.76
+#numpy>=2.0.0rc1
+numpy<2.0.0
+#opencv-python
+#opencv-contrib-python
+tflite-runtime==2.14.0
+#tensorflow
