@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, f
 import cv2
 import numpy as np
 import tensorflow as tf
+# from tflite_runtime.interpreter import Interpreter
 import logging
 import os
 import json
@@ -23,8 +24,13 @@ class MeterReader:
         Args:
             model_path (str): Path to the TensorFlow Lite model file.
         """
+        print(f"Loading model from: {os.path.abspath(model_path)}")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+            
         # Load the TensorFlow Lite model
-        self.interpreter = tf.lite.Interpreter(model_path=model_path)
+        self.interpreter = tf.lite.Interpreter(model_path=model_path) # for tensorflow
+        # self.interpreter = Interpreter(model_path=model_path)  # for tflite-runtime
         self.interpreter.allocate_tensors()
 
         # Get input and output details
