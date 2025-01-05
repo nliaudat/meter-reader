@@ -2,6 +2,7 @@
 import cv2
 import numpy as np
 import tensorflow as tf
+# from tflite_runtime.interpreter import Interpreter
 import logging
 import argparse
 import requests
@@ -21,13 +22,23 @@ class MeterReader:
         Args:
             model_path (str): Path to the TensorFlow Lite model file.
         """
+        print(f"Loading model from: {os.path.abspath(model_path)}")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
         # Load the TensorFlow Lite model
-        self.interpreter = tf.lite.Interpreter(model_path=model_path)
+        self.interpreter = tf.lite.Interpreter(model_path=model_path)  # for tensorflow
+        # self.interpreter = Interpreter(model_path=model_path)  # for tflite-runtime
+
         self.interpreter.allocate_tensors()
 
         # Get input and output details
-        self.input_details = self.interpreter.get_input_details()
-        self.output_details = self.interpreter.get_output_details()
+        self.input_details = self.interpreter.get_input_details() #[0]["index"]
+        self.output_details = self.interpreter.get_output_details() #[0]["index"]
+        
+        # print(self.input_details)
+        # [{'name': 'serving_default_batch_normalization_input:0', 'index': 0, 'shape': array([ 1, 32, 20,  3]), 'shape_signature': array([-1, 32, 20,  3]), 'dtype': <class 'numpy.float32'>, 'quantization': (0.0, 0), 'quantization_parameters': {'scales': array([], dtype=float32), 'zero_points': array([], dtype=int32), 'quantized_dimension': 0}, 'sparsity_parameters': {}}]
+        # print(self.output_details)
+        # [{'name': 'StatefulPartitionedCall:0', 'index': 38, 'shape': array([  1, 100]), 'shape_signature': array([ -1, 100]), 'dtype': <class 'numpy.float32'>, 'quantization': (0.0, 0), 'quantization_parameters': {'scales': array([], dtype=float32), 'zero_points': array([], dtype=int32), 'quantized_dimension': 0}, 'sparsity_parameters': {}}]
 
         # Get input shape for preprocessing
         self.input_shape = self.input_details[0]['shape'][1:3]
@@ -58,13 +69,14 @@ class MeterReader:
 
     def predict(self, image):
         """
-        Predict the meter reading from the input image.
+        Predict the meter reading and confidence score from the input image.
         
         Args:
             image (numpy.ndarray): Input image (RGB format).
         
         Returns:
             float: Predicted meter reading.
+            float: Confidence score.
         """
         # Preprocess the image
         input_image = self.preprocess_image(image)
@@ -75,30 +87,38 @@ class MeterReader:
         # Run inference
         self.interpreter.invoke()
 
-        # Get the output tensor
-        output = self.interpreter.get_tensor(self.output_details[0]['index'])
+        # Get the output tensor (logits)
+        logits = self.interpreter.get_tensor(self.output_details[0]['index'])
 
-        # Extract the predicted meter reading
-        # Using argmax to handle classification output (e.g., 10 classes for digits 0-9)
-        meter_reading = np.argmax(output[0]) / 10
+        # Apply softmax to convert logits to probabilities
+        probabilities = tf.nn.softmax(logits[0]).numpy() #The raw output (logits) from the model is passed through a softmax function to convert it into probabilities. This ensures that the values sum to 1 and represent confidence scores for each class
 
-        return meter_reading
+        # Extract the predicted class (meter reading) and confidence score
+        predicted_class = np.argmax(probabilities)  # The predicted class is the index of the highest probability (np.argmax(probabilities)).
+        confidence_score = np.max(probabilities)    # The confidence score is the value of the highest probability (np.max(probabilities)).
 
-    def visualize(self, image, regions, meter_readings, raw=True):
+        # Convert the predicted class to a meter reading (assuming classes 0-9 correspond to digits 0-9)
+        meter_reading = predicted_class / 10  # classes correspond to digits (0-9), and the meter reading is the class index divided by 10
+
+        return meter_reading, confidence_score
+
+    def visualize(self, image, regions, meter_readings, confidence_scores=None, raw=True, no_confidence=False):
         """
-        Visualize the meter readings on the image.
+        Visualize the meter readings and confidence scores on the image.
         
         Args:
             image (numpy.ndarray): Input image (BGR format).
             regions (list): List of tuples defining the regions (x1, y1, x2, y2).
             meter_readings (list): Predicted meter readings for each region.
+            confidence_scores (list): Confidence scores for each region (optional).
             raw (bool): If True, display raw readings; otherwise, display processed readings.
+            no_confidence (bool): If True, skip displaying confidence scores.
         
         Returns:
-            numpy.ndarray: Image with the meter readings displayed.
+            numpy.ndarray: Image with the meter readings and confidence scores displayed.
         """
-        # Add the meter readings as text on each region
-        for region, reading in zip(regions, meter_readings):
+        # Add the meter readings and confidence scores as text on each region
+        for i, (region, reading) in enumerate(zip(regions, meter_readings)):
             x1, y1, x2, y2 = region
             if raw:
                 # Display raw readings (floats)
@@ -106,8 +126,21 @@ class MeterReader:
             else:
                 # Display processed readings (integers)
                 cv2.putText(image, f"{int(round(reading))}", (x1 + 10, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            # Display confidence score below the meter reading (if enabled)
+            if not no_confidence and confidence_scores is not None:
+                confidence = confidence_scores[i]
+                # Display "Confidence:" on one line
+                # cv2.putText(image, "Confidence:", (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
+                # Display the confidence score as an integer on the next line in orange
+                cv2.putText(image, f"{int(round(confidence * 100))}%", (x1, y2 + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
+            
             # Draw a rectangle around the region
             cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            
+        # Display confidence label (if enabled)
+        # if not no_confidence and confidence_scores is not None:
+            # cv2.putText(image, "Confidence:", (10, y2-20 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
 
         return image
 
@@ -197,13 +230,14 @@ def print_help():
     """
     Print help information for the script.
     """
-    print("Usage: python meter_reading.py --model MODEL_PATH --regions REGIONS_SOURCE --image_source IMAGE_SOURCE [--no-gui] [--no-output-image]")
+    print("Usage: python meter_reading.py --model MODEL_PATH --regions REGIONS_SOURCE --image_source IMAGE_SOURCE [--no-gui] [--no-output-image] [--no-confidence]")
     print("\nArguments:")
     print("  --model          Path to the TensorFlow Lite model file.")
     print("  --regions        Path to the JSON file or a string representation of a list of regions (e.g., \"[[x1,y1,x2,y2], [x1,y1,x2,y2]]\").")
     print("  --image_source   Path to the local image file or URL of the remote image.")
     print("  --no-gui         Disable GUI (no image display).")
     print("  --no-output-image Do not save the output image with annotations.")
+    print("  --no-confidence  Do not display confidence scores on the output image.")
     print("\nExample:")
     print("  python meter_reading.py --model model.tflite --regions regions.json --image_source http://192.168.1.113/img_tmp/alg.jpg")
     print("  python meter_reading.py --model model.tflite --regions \"[[10,10,50,50], [60,60,100,100]]\" --image_source sample.jpg")
@@ -218,6 +252,7 @@ def main():
     parser.add_argument("--image_source", default="sample.jpg", help="Path to the local image file or URL of the remote image")
     parser.add_argument("--no-gui", action="store_true", help="Disable GUI (no image display)")
     parser.add_argument("--no-output-image", action="store_true", help="Do not save the output image with annotations")
+    parser.add_argument("--no-confidence", action="store_true", help="Do not display confidence scores on the output image")
 
     # Parse the arguments
     args, _ = parser.parse_known_args()
@@ -270,13 +305,17 @@ def main():
         logging.error("No valid regions to process.")
         sys.exit(1)
 
-    # Predict the meter reading for each region
+    # Predict the meter reading and confidence score for each region
     raw_meter_readings = []  # Store raw readings
     processed_meter_readings = []  # Store processed readings
+    confidence_scores = []  # Store confidence scores
+
+
     for region in image_regions:
         try:
-            raw_reading = meter_reader.predict(region)
+            raw_reading, confidence = meter_reader.predict(region)
             raw_meter_readings.append(raw_reading)
+            confidence_scores.append(confidence)
 
             # Preprocess the reading
             processed_reading = round(raw_reading)  # Round to the nearest integer
@@ -294,15 +333,16 @@ def main():
     if not args.no_gui:
         logging.info(f"Raw Meter Readings: {raw_meter_readings}")
         logging.info(f"Processed Meter Readings: {processed_meter_readings}")
+        logging.info(f"Confidence scores: {[int(round(score * 100)) for score in confidence_scores]}")
         logging.info(f"Final Meter Reading: {concatenated_readings}")
 
-    # Visualize the results (if not disabled)
+    # Visualize the results with confidence scores (if not disabled)
     if not args.no_output_image:
-        result_image = meter_reader.visualize(image, regions, raw_meter_readings, raw=True)
+        result_image = meter_reader.visualize(image, regions, raw_meter_readings, confidence_scores, raw=True, no_confidence=args.no_confidence)
         cv2.imwrite("result.jpg", result_image)
 
     # Display the result (if not disabled)
-    if not args.no_gui: # and not args.no_output_image:
+    if not args.no_gui:
         cv2.imshow("Meter Readings", result_image)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
