@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, f
 import cv2
 import numpy as np
 import tensorflow as tf
-# from tflite_runtime.interpreter import Interpreter
 import logging
 import os
 import json
@@ -29,7 +28,7 @@ class MeterReader:
             raise FileNotFoundError(f"Model file not found: {model_path}")
             
         # Load the TensorFlow Lite model
-        self.interpreter = tf.lite.Interpreter(model_path=model_path) # for tensorflow
+        self.interpreter = tf.lite.Interpreter(model_path=model_path)  # for tensorflow
         # self.interpreter = Interpreter(model_path=model_path)  # for tflite-runtime
         self.interpreter.allocate_tensors()
 
@@ -66,13 +65,14 @@ class MeterReader:
 
     def predict(self, image):
         """
-        Predict the meter reading from the input image.
+        Predict the meter reading and confidence score from the input image.
         
         Args:
             image (numpy.ndarray): Input image (RGB format).
         
         Returns:
             float: Predicted meter reading.
+            float: Confidence score.
         """
         # Preprocess the image
         input_image = self.preprocess_image(image)
@@ -83,14 +83,20 @@ class MeterReader:
         # Run inference
         self.interpreter.invoke()
 
-        # Get the output tensor
-        output = self.interpreter.get_tensor(self.output_details[0]['index'])
+        # Get the output tensor (logits)
+        logits = self.interpreter.get_tensor(self.output_details[0]['index'])
 
-        # Extract the predicted meter reading
-        # Using argmax to handle classification output (e.g., 10 classes for digits 0-9)
-        meter_reading = np.argmax(output[0]) / 10
+        # Apply softmax to convert logits to probabilities
+        probabilities = tf.nn.softmax(logits[0]).numpy()
 
-        return meter_reading
+        # Extract the predicted class (meter reading) and confidence score
+        predicted_class = np.argmax(probabilities)  # Index of the highest probability
+        confidence_score = np.max(probabilities)    # Highest probability value
+
+        # Convert the predicted class to a meter reading (assuming classes 0-99 correspond to digits 0.0-9.9)
+        meter_reading = predicted_class / 10  # class index divided by 10
+
+        return meter_reading, confidence_score
 
 
 def load_regions(regions_source):
@@ -119,15 +125,23 @@ def load_regions(regions_source):
     except (FileNotFoundError, json.JSONDecodeError, SyntaxError, ValueError) as e:
         logging.error(f"Error loading regions: {e}")
         return []
-        
-# Save regions to a JSON file
+
+
 def save_regions(file_path, regions):
+    """
+    Save regions to a JSON file.
+    
+    Args:
+        file_path (str): Path to the JSON file.
+        regions (list): List of regions to save.
+    """
     try:
         with open(file_path, "w") as f:
             json.dump(regions, f)
         flash("Regions saved successfully.", "success")
     except Exception as e:
         flash(f"Error saving regions: {e}", "error")
+
 
 def load_image(image_source):
     """
@@ -223,11 +237,15 @@ def index():
         # Extract regions and predict readings
         raw_meter_readings = []
         processed_meter_readings = []
+        confidence_scores = []
         for region in regions:
             x1, y1, x2, y2 = region
             region_image = image[y1:y2, x1:x2]
-            raw_reading = meter_reader.predict(region_image)
+            raw_reading, confidence = meter_reader.predict(region_image)
             raw_meter_readings.append(raw_reading)
+            confidence_scores.append(confidence)
+
+            # Preprocess the reading
             processed_reading = round(raw_reading)
             if processed_reading == 10:
                 processed_reading = 0
@@ -238,10 +256,15 @@ def index():
 
         # Visualize the results
         result_image = image.copy()
-        for region, reading in zip(regions, raw_meter_readings):
+        for i, (region, reading) in enumerate(zip(regions, raw_meter_readings)):
             x1, y1, x2, y2 = region
-            cv2.putText(result_image, f"{reading:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.putText(result_image, f"{reading:.1f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             cv2.rectangle(result_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            # Display confidence score (if enabled)
+            if not request.form.get("no_confidence"):
+                confidence = confidence_scores[i]
+                cv2.putText(result_image, f"{int(round(confidence * 100))}%", (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
 
         # Save the result image
         result_filename = f"result_{os.path.basename(image_source)}"
@@ -254,72 +277,18 @@ def index():
             result_image=result_filename,
             raw_readings=raw_meter_readings,
             processed_readings=processed_meter_readings,
+            confidence_scores=[int(round(score * 100)) for score in confidence_scores],
             final_reading=concatenated_readings,
         )
 
-    # Handle GET request with query parameters
-    if request.method == "GET":
-        image_source = request.args.get("image_url")
-        regions_source = request.args.get("regions_source")
-
-        if image_source and regions_source:
-            # Load the image
-            image = load_image(image_source)
-            if image is None:
-                flash("Unable to load image from URL.", "error")
-                return redirect(url_for("index"))
-
-            # Load regions
-            regions = load_regions(regions_source)
-            if not regions:
-                flash("No regions defined. Please provide regions.", "error")
-                return redirect(url_for("index"))
-
-            # Initialize the MeterReader
-            meter_reader = MeterReader("model.tflite")
-
-            # Extract regions and predict readings
-            raw_meter_readings = []
-            processed_meter_readings = []
-            for region in regions:
-                x1, y1, x2, y2 = region
-                region_image = image[y1:y2, x1:x2]
-                raw_reading = meter_reader.predict(region_image)
-                raw_meter_readings.append(raw_reading)
-                processed_reading = round(raw_reading)
-                if processed_reading == 10:
-                    processed_reading = 0
-                processed_meter_readings.append(processed_reading)
-
-            # Concatenate the processed readings
-            concatenated_readings = int(''.join(map(str, processed_meter_readings)))
-
-            # Visualize the results
-            result_image = image.copy()
-            for region, reading in zip(regions, raw_meter_readings):
-                x1, y1, x2, y2 = region
-                cv2.putText(result_image, f"{reading:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                cv2.rectangle(result_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-            # Save the result image
-            result_filename = f"result_{os.path.basename(image_source)}"
-            result_path = os.path.join("static", result_filename)
-            cv2.imwrite(result_path, result_image)
-
-            # Render the result page
-            return render_template(
-                "index.html",
-                result_image=result_filename,
-                raw_readings=raw_meter_readings,
-                processed_readings=processed_meter_readings,
-                final_reading=concatenated_readings,
-            )
-
     return render_template("index.html")
 
-# Route for drawing regions
+
 @app.route("/draw_regions", methods=["GET", "POST"])
 def draw_regions():
+    """
+    Route to handle drawing regions on an image.
+    """
     if request.method == "POST":
         # Get the image source (file upload or URL)
         image_source = None
@@ -369,9 +338,12 @@ def draw_regions():
 
     return render_template("draw_regions.html")
 
-# Route to save regions
+
 @app.route("/save_regions", methods=["POST"])
 def save_regions_route():
+    """
+    Route to save regions to a JSON file.
+    """
     regions = request.json.get("regions")
     if not regions:
         flash("No regions provided.", "error")
@@ -380,6 +352,7 @@ def save_regions_route():
     # Save regions to the JSON file
     save_regions("regions.json", regions)
     return jsonify({"message": "Regions saved successfully."})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
