@@ -3,9 +3,6 @@ meter (water, gas, electricity) reader from image to digits
 
 ![alt text](https://github.com/nliaudat/meter-reader/blob/main/result.jpg "digit recognition result")
 
-Final Meter Reading:
-
-176882
 
 ## Goals : 
 
