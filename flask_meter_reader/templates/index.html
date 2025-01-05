@@ -31,13 +31,21 @@
         <h3>Raw Readings:</h3>
         <ul>
             {% for reading in raw_readings %}
-                <li>{{ "%.2f"|format(reading) }}</li>
+                <li>{{ "%.1f"|format(reading) }}</li>
             {% endfor %}
         </ul>
+		<!--
         <h3>Processed Readings:</h3>
         <ul>
             {% for reading in processed_readings %}
                 <li>{{ reading }}</li>
+            {% endfor %}
+        </ul>
+		-->
+		<h3>Confidence scores:</h3>
+        <ul>
+            {% for reading in confidence_scores %}
+                <li>{{ reading }}%</li>
             {% endfor %}
         </ul>
         <h3>Final Meter Reading:</h3>
