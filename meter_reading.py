@@ -97,8 +97,8 @@ class MeterReader:
         predicted_class = np.argmax(probabilities)  # The predicted class is the index of the highest probability (np.argmax(probabilities)).
         confidence_score = np.max(probabilities)    # The confidence score is the value of the highest probability (np.max(probabilities)).
 
-        # Convert the predicted class to a meter reading (assuming classes 0-9 correspond to digits 0-9)
-        meter_reading = predicted_class / 10  # classes correspond to digits (0-9), and the meter reading is the class index divided by 10
+        # Convert the predicted class to a meter reading (assuming classes 0-99 correspond to digits 0.0-9.9)
+        meter_reading = predicted_class / 10  # class index divided by 10
 
         return meter_reading, confidence_score
 
