@@ -52,3 +52,4 @@ meter (water, gas, electricity) reader from image to digits
 ## Licence: 
 * Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC-BY-NC-SA)
 * No commercial use
+* The AI model from haverland is under Apache Licence
