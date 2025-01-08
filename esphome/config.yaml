@@ -1,0 +1,68 @@
+
+# for flashing : press boot button for 2-3 seconds before the serial connection initialize
+# After OTA update, the EN (reset) button must be pressed to run firmware
+# do not use gpio12 (MTDI)
+
+
+
+############## General configuration
+
+substitutions:
+  name: meter-reader-hot-water #no special caracters
+  friendly_name: "Meter reader Hot Water"
+  id_prefix: "meter_reader_hot_water_" #if you have more than one board, it could be usefull to remane all the "id:prefix_xxxx" with a decicaded prefix
+  revision: "1.001"
+    
+  #time
+  TZ: "Europe/Zurich" #timezone
+  reboot_days_of_week: "MON"
+  reboot_hours: "5"
+  reboot_minutes: "0"
+  reboot_seconds: "0"
+
+  
+preferences:
+  flash_write_interval: 60min
+  
+
+ota:
+  - platform: esphome
+
+safe_mode:
+
+# to disable when tests are done
+web_server:
+  port: 80
+  include_internal: true
+  local: true
+
+# to disable when tests are done
+esp32_camera_web_server:
+  - port: 8080
+    mode: stream
+  - port: 8081
+    mode: snapshot
+  
+# web_server:
+  # port: 80
+  # version: 3
+  # log: true
+  # local: false #true in case of no internet
+  
+# Enable HOME Assistant API
+api:
+  reboot_timeout: 30min
+
+packages:
+  board: !include board_freenove_esp32-s3-n8r8.yaml
+  logger: !include logger.yaml
+  wifi: !include wifi.yaml
+  time: !include time.yaml
+  switch_others: !include switch_others.yaml
+  sensor_others: !include sensor_others.yaml
+  camera_options: !include camera_options.yaml
+  camera: !include camera.yaml
+  # camera_webserver: !include camera_webserver.yaml
+  globals: !include globals.yaml
+
+
