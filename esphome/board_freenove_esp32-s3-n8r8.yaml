@@ -83,13 +83,13 @@ psram:
     
 
 
-light:
-  - platform: status_led
-    name: "${name} Status LED"
-    id: ${id_prefix}status_led
-    icon: "mdi:alarm-light"
-    restore_mode: ALWAYS_OFF
-    pin: ${status_led_pin}
+# light:
+  # - platform: status_led
+    # name: "${name} Status LED"
+    # id: ${id_prefix}status_led
+    # icon: "mdi:alarm-light"
+    # restore_mode: ALWAYS_OFF
+    # pin: ${status_led_pin}
     
 # status_led:
   # pin: ${status_led_pin} #GPIO02
