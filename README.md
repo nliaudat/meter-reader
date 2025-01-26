@@ -42,7 +42,8 @@ meter (water, gas, electricity) reader from image to digits
   
 ## Todos: 
 * test and improve
-* make a hassio component (not actually possible cause nor tflite-runtime nor tensorflow supports python 3.13)
+* make a hassio component (not actually possible cause nor tflite-runtime nor tensorflow supports python 3.13). Perhaps can hassio use venv ?
+* make a scene text recognition model to recognise all digits in one shot. (actually investigating paddleOcr, OpenOcr, Parsec)
   
 
 ## Sources and inspiration: 
