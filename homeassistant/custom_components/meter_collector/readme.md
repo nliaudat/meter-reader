@@ -7,9 +7,6 @@ This guide will walk you through the steps to install and configure the **Meter 
 1. **Copy the Integration Folder:**
    - Download or clone the `meter_collector` custom component.
    - Copy the `meter_collector` folder into your Home Assistant `custom_components` directory.
-     ```bash
-     cp -r meter_collector /homeassistant/custom_components/
-     ```
 
 2. **Set Permissions:**
    - Ensure the folder and files have the correct permissions (755).
