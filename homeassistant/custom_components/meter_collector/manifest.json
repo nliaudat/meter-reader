@@ -1,0 +1,11 @@
+{
+  "domain": "meter_collector",
+  "name": "Meter Collector",
+  "version": "1.0",
+  "documentation": "https://github.com/nliaudat/meter-reader",
+  "issue_tracker": "https://github.com/nliaudat/meter-reader/issues",
+  "dependencies": [],
+  "integration_type": "service",
+  "codeowners": ["@nliaudat"],
+  "config_flow": true
+}
