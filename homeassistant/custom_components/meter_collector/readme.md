@@ -1,4 +1,4 @@
-# Meter Collector Integration for Home Assistant
+# AI on the Edge Device  Meter Collector Integration for Home Assistant
 
 This guide will walk you through the steps to install and configure the **Meter Collector** custom integration in Home Assistant.
 
@@ -40,4 +40,4 @@ Once the integration is added, you will need to configure it with the following 
     http://{IP}/img_tmp/alg.jpg
  ```
 Optional Configuration:
-    Scan Interval: The time interval (in seconds) at which the integration will poll the meter for updates. Default is 3000 seconds (5min).
+    Scan Interval: The time interval (in seconds) at which the integration will poll the meter for updates. Default is 300 seconds (5min).
