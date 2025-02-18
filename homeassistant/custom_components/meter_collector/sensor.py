@@ -42,6 +42,7 @@ class MeterCollectorSensor(Entity):
         self._attributes = {}
         self._last_update = None
         self._last_raw_value = None
+        self._current_raw_value = None
 
     @property
     def name(self):
@@ -77,13 +78,16 @@ class MeterCollectorSensor(Entity):
                     data = await response.json()
                     raw_value = data.get("rawValue")
                 else:
-                    # Assume plain text response
                     text_response = await response.text()
-                    # Extract the numeric value after the tab character
                     raw_value = text_response.split("\t")[-1].strip()
 
-            # Convert raw_value to float for comparison
-            raw_value_float = float(raw_value)
+            try:
+                raw_value_float = float(raw_value)
+            except ValueError:
+                _LOGGER.error(f"Invalid raw value received: {raw_value}")
+                self._state = "Error"
+                self._attributes = {"error": f"Invalid raw value: {raw_value}"}
+                return
 
             # Skip if the new value is not greater than the last recorded value
             if self._last_raw_value is not None and raw_value_float <= self._last_raw_value:
@@ -98,22 +102,22 @@ class MeterCollectorSensor(Entity):
             # Get the current Unix epoch time
             unix_epoch = int(datetime.now().timestamp())
 
-            # Save raw value to CSV
+            # Save raw value to CSV (Move to executor)
             csv_file = os.path.join(self._data_dir, "log.csv")
-            with open(csv_file, "a", newline="") as csvfile:
-                csv_writer = csv.writer(csvfile)
-                csv_writer.writerow([unix_epoch, raw_value])
+            await self._hass.async_add_executor_job(self._write_csv, csv_file, unix_epoch, raw_value)
 
-            # Save image with the name {unixepoch}_{value}.jpg
+            # Save image (Move to executor)
             image_file = os.path.join(self._data_dir, f"{unix_epoch}_{raw_value}.jpg")
-            with open(image_file, "wb") as imgfile:
-                imgfile.write(image_data)
+            await self._hass.async_add_executor_job(self._write_image, image_file, image_data)
 
             # Update state and attributes
             self._state = raw_value
+            self._current_raw_value = raw_value_float
             self._attributes = {
                 "image_url": self._image_url,
-                "last_updated": datetime.now().isoformat()
+                "last_updated": datetime.now().isoformat(),
+                "last_raw_value": self._last_raw_value,
+                "current_raw_value": self._current_raw_value
             }
 
             # Record the last update time and last raw value
@@ -124,3 +128,14 @@ class MeterCollectorSensor(Entity):
             _LOGGER.error(f"Error fetching data: {e}")
             self._state = "Error"
             self._attributes = {"error": str(e)}
+
+    def _write_csv(self, csv_file, unix_epoch, raw_value):
+        """Helper method to write data to a CSV file in an executor thread."""
+        with open(csv_file, "a", newline="") as csvfile:
+            csv_writer = csv.writer(csvfile)
+            csv_writer.writerow([unix_epoch, raw_value])
+
+    def _write_image(self, image_file, image_data):
+        """Helper method to write image data to a file in an executor thread."""
+        with open(image_file, "wb") as imgfile:
+            imgfile.write(image_data)
