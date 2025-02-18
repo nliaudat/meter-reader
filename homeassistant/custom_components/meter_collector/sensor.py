@@ -10,8 +10,10 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the Meter Collector sensor from a config entry."""
-    value_url = config_entry.data["value_url"]
-    image_url = config_entry.data["image_url"]
+    ip_address = config_entry.data["ip"]
+    value_url = f"http://{ip_address}/value?all=true&type=raw"
+    image_url = f"http://{ip_address}/img_tmp/alg.jpg"
+    error_url = f"http://{ip_address}/value?all=true&type=error"  # Add error URL
     instance_name = config_entry.data["instance_name"]
     scan_interval = config_entry.options.get("scan_interval", DEFAULT_SCAN_INTERVAL)
     data_dir = hass.config.path("custom_components/meter_collector/data", instance_name)
@@ -19,7 +21,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     # Create the data directory if it doesn't exist
     os.makedirs(data_dir, exist_ok=True)
 
-    sensor = MeterCollectorSensor(hass, value_url, image_url, data_dir, scan_interval, instance_name)
+    sensor = MeterCollectorSensor(hass, value_url, image_url, error_url, data_dir, scan_interval, instance_name)
     async_add_entities([sensor])
 
     # Store the sensor in hass.data for service access
@@ -30,11 +32,12 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 class MeterCollectorSensor(Entity):
     """Representation of a Meter Collector sensor."""
 
-    def __init__(self, hass, value_url, image_url, data_dir, scan_interval, instance_name):
+    def __init__(self, hass, value_url, image_url, error_url, data_dir, scan_interval, instance_name):
         """Initialize the sensor."""
         self._hass = hass
         self._value_url = value_url
         self._image_url = image_url
+        self._error_url = error_url 
         self._data_dir = data_dir
         self._scan_interval = timedelta(seconds=scan_interval)
         self._instance_name = instance_name
@@ -43,6 +46,7 @@ class MeterCollectorSensor(Entity):
         self._last_update = None
         self._last_raw_value = None
         self._current_raw_value = None
+        self._error_value = None 
 
     @property
     def name(self):
@@ -89,6 +93,12 @@ class MeterCollectorSensor(Entity):
                 self._attributes = {"error": f"Invalid raw value: {raw_value}"}
                 return
 
+            # Fetch error value
+            async with session.get(self._error_url) as error_response:
+                error_response.raise_for_status()
+                error_text = await error_response.text()
+                self._error_value = error_text.split("\t")[-1].strip()
+
             # Skip if the new value is not greater than the last recorded value
             if self._last_raw_value is not None and raw_value_float <= self._last_raw_value:
                 _LOGGER.debug(f"Skipping update: New value {raw_value} is not greater than last value {self._last_raw_value}")
@@ -104,7 +114,7 @@ class MeterCollectorSensor(Entity):
 
             # Save raw value to CSV (Move to executor)
             csv_file = os.path.join(self._data_dir, "log.csv")
-            await self._hass.async_add_executor_job(self._write_csv, csv_file, unix_epoch, raw_value)
+            await self._hass.async_add_executor_job(self._write_csv, csv_file, unix_epoch, raw_value, self._error_value)
 
             # Save image (Move to executor)
             image_file = os.path.join(self._data_dir, f"{unix_epoch}_{raw_value}.jpg")
@@ -117,23 +127,28 @@ class MeterCollectorSensor(Entity):
                 "image_url": self._image_url,
                 "last_updated": datetime.now().isoformat(),
                 "last_raw_value": self._last_raw_value,
-                "current_raw_value": self._current_raw_value
+                "current_raw_value": self._current_raw_value,
+                "error_value": self._error_value  # Add error value to attributes
             }
 
             # Record the last update time and last raw value
             self._last_update = datetime.now()
             self._last_raw_value = raw_value_float
 
+            # Log error if present
+            if self._error_value.lower() != "no error":
+                _LOGGER.warning(f"Error detected: {self._error_value}")
+
         except Exception as e:
             _LOGGER.error(f"Error fetching data: {e}")
             self._state = "Error"
             self._attributes = {"error": str(e)}
 
-    def _write_csv(self, csv_file, unix_epoch, raw_value):
+    def _write_csv(self, csv_file, unix_epoch, raw_value, error_value):
         """Helper method to write data to a CSV file in an executor thread."""
         with open(csv_file, "a", newline="") as csvfile:
             csv_writer = csv.writer(csvfile)
-            csv_writer.writerow([unix_epoch, raw_value])
+            csv_writer.writerow([unix_epoch, raw_value, error_value])  # Add error value to CSV
 
     def _write_image(self, image_file, image_data):
         """Helper method to write image data to a file in an executor thread."""

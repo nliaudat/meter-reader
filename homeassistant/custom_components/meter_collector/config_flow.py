@@ -1,7 +1,7 @@
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.config_entries import ConfigEntry  # Import ConfigEntry
+from homeassistant.config_entries import ConfigEntry
 from .const import DOMAIN, DEFAULT_SCAN_INTERVAL
 
 class MeterCollectorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -15,13 +15,18 @@ class MeterCollectorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Validate user input
-            if not user_input["value_url"].startswith("http"):
-                errors["value_url"] = "invalid_url"
-            if not user_input["image_url"].startswith("http"):
-                errors["image_url"] = "invalid_url"
+            ip_address = user_input["ip"]
+            
+            # Validate IP address format
+            if not self._is_valid_ip(ip_address):
+                errors["ip"] = "invalid_ip"
+            
             if not errors:
-                # Input is valid, create the config entry
+                # Construct URLs based on the provided IP
+                user_input["value_url"] = f"http://{ip_address}/value?all=true&type=raw"
+                user_input["image_url"] = f"http://{ip_address}/img_tmp/alg.jpg"
+                user_input["error_url"] = f"http://{ip_address}/value?all=true&type=error"
+                
                 return self.async_create_entry(
                     title=user_input["instance_name"],  # Use instance name as the title
                     data=user_input
@@ -31,9 +36,8 @@ class MeterCollectorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required("instance_name"): str,  # Add instance name field
-                vol.Required("value_url"): str,
-                vol.Required("image_url"): str,
+                vol.Required("instance_name"): str, 
+                vol.Required("ip"): str, 
                 vol.Optional("scan_interval", default=DEFAULT_SCAN_INTERVAL): int,
             }),
             errors=errors
@@ -45,12 +49,18 @@ class MeterCollectorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return MeterCollectorOptionsFlow(config_entry)
 
+    def _is_valid_ip(self, ip):
+        """Validate IP address format."""
+        import re
+        pattern = r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"
+        return bool(re.match(pattern, ip))
+
 class MeterCollectorOptionsFlow(config_entries.OptionsFlow):
     """Handle an options flow for Meter Collector."""
 
     def __init__(self, config_entry: ConfigEntry):
         """Initialize options flow."""
-        # self.config_entry = config_entry #depreciated
+        self.config_entry = config_entry #depreciated
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
@@ -63,8 +73,7 @@ class MeterCollectorOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             data_schema=vol.Schema({
                 vol.Required("instance_name", default=self.config_entry.data["instance_name"]): str,
-                vol.Required("value_url", default=self.config_entry.data["value_url"]): str,
-                vol.Required("image_url", default=self.config_entry.data["image_url"]): str,
+                vol.Required("ip", default=self.config_entry.data["ip"]): str,  # Include IP in the form
                 vol.Optional("scan_interval", default=self.config_entry.options.get("scan_interval", DEFAULT_SCAN_INTERVAL)): int,
             })
         )
