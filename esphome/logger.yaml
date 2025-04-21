@@ -2,7 +2,7 @@
 logger:
   # level: ERROR #NONE# ERROR #INFO #DEBUG  #VERBOSE
   level: DEBUG #NONE# ERROR #INFO #DEBUG  #VERBOSE
-  #baud_rate: 0 #to disable logging via UART
+  # baud_rate: 0 #to disable logging via UART
   logs:
     adc: NONE
     sensor: ERROR
@@ -15,10 +15,11 @@ logger:
     homeassistant.sensor: ERROR
     gpio : NONE
     esp-idf : NONE
-    web_server_idf : NONE
     status_led : NONE
     dallas.temp.sensor: ERROR
     gpio.one_wire: INFO
     esp32.preferences: NONE
     safe_mode: NONE
-    esp32_camera: ERROR
+    esp32_camera: ERROR #DEBUG
+    esp32_camera_web_server: ERROR #DEBUG
+    web_server_idf: ERROR #DEBUG

@@ -1,7 +1,17 @@
 
 # for flashing : press boot button for 2-3 seconds before the serial connection initialize
 # After OTA update, the EN (reset) button must be pressed to run firmware
-# do not use gpio12 (MTDI)
+
+
+
+##### temporary fix to use new camera component 
+external_components:
+  - source: github://pr#7639 #https://github.com/esphome/esphome/pull/7639
+    refresh: 30s
+    components:
+      - camera
+      - esp32_camera
+      - esp32_camera_web_server
 
 
 
@@ -11,7 +21,7 @@ substitutions:
   name: meter-reader-hot-water #no special caracters
   friendly_name: "Meter reader Hot Water"
   id_prefix: "meter_reader_hot_water_" #if you have more than one board, it could be usefull to remane all the "id:prefix_xxxx" with a decicaded prefix
-  revision: "1.001"
+  revision: "1.2"
     
   #time
   TZ: "Europe/Zurich" #timezone
@@ -31,17 +41,17 @@ ota:
 safe_mode:
 
 # to disable when tests are done
-web_server:
-  port: 80
-  include_internal: true
-  local: true
+# web_server:
+  # port: 80
+  # include_internal: true
+  # local: true
 
 # to disable when tests are done
-esp32_camera_web_server:
-  - port: 8080
-    mode: stream
-  - port: 8081
-    mode: snapshot
+# esp32_camera_web_server:
+  # - port: 8080
+    # mode: stream
+  # - port: 8081
+    # mode: snapshot
   
 # web_server:
   # port: 80
@@ -62,7 +72,7 @@ packages:
   sensor_others: !include sensor_others.yaml
   camera_options: !include camera_options.yaml
   camera: !include camera.yaml
-  # camera_webserver: !include camera_webserver.yaml
+  camera_webserver: !include camera_webserver.yaml
   globals: !include globals.yaml
 
 
