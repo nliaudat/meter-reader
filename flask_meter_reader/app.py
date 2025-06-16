@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify, render_template, redirect, url_for, flash
 import cv2
 import numpy as np
-import tensorflow as tf
+# import tensorflow as tf
+from tflite_runtime.interpreter import Interpreter
 import logging
 import os
 import json
@@ -11,6 +12,11 @@ from werkzeug.utils import secure_filename
 
 # Set up logging for better output control
 logging.basicConfig(level=logging.INFO)
+
+# Manually apply softmax to convert logits to probabilities when using tflite
+def softmax(x):
+    e_x = np.exp(x - np.max(x))  # subtract max for numerical stability
+    return e_x / e_x.sum()
 
 app = Flask(__name__)
 app.secret_key = "supersecretkey"
@@ -28,8 +34,8 @@ class MeterReader:
             raise FileNotFoundError(f"Model file not found: {model_path}")
             
         # Load the TensorFlow Lite model
-        self.interpreter = tf.lite.Interpreter(model_path=model_path)  # for tensorflow
-        # self.interpreter = Interpreter(model_path=model_path)  # for tflite-runtime
+        # self.interpreter = tf.lite.Interpreter(model_path=model_path) # for tensorflow
+        self.interpreter = Interpreter(model_path=model_path)  # for tflite-runtime
         self.interpreter.allocate_tensors()
 
         # Get input and output details
@@ -87,7 +93,9 @@ class MeterReader:
         logits = self.interpreter.get_tensor(self.output_details[0]['index'])
 
         # Apply softmax to convert logits to probabilities
-        probabilities = tf.nn.softmax(logits[0]).numpy()
+        # probabilities = tf.nn.softmax(logits[0]).numpy() # for tf, but tflite do not have softmax
+        probabilities = softmax(logits[0])
+        
 
         # Extract the predicted class (meter reading) and confidence score
         predicted_class = np.argmax(probabilities)  # Index of the highest probability
@@ -97,6 +105,8 @@ class MeterReader:
         meter_reading = predicted_class / 10  # class index divided by 10
 
         return meter_reading, confidence_score
+
+
 
 
 def load_regions(regions_source):
