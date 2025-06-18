@@ -39,6 +39,7 @@ meter (water, gas, electricity) reader from image to digits
 - [onetime]Go to  Draw Regions> input you image (http or local) and set regions
    
 - Return to index and process you image
+(api is available)
   
 ## Todos: 
 * test and improve
