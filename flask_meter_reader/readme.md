@@ -100,3 +100,6 @@ Output
     Processed Readings: [5, 7, 7]
 
     Final Reading: 577
+
+# API usage : 
+look at https://github.com/nliaudat/meter-reader/blob/main/flask_meter_reader/api_documentation.md
