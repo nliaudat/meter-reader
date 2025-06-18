@@ -10,6 +10,41 @@
             border: 1px solid black;
             cursor: crosshair;
         }
+        #coordinates-display {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+        #regions-list {
+            list-style-type: none;
+            padding: 0;
+        }
+        #regions-list li {
+            padding: 5px;
+            margin: 5px 0;
+            background-color: #e9e9e9;
+            border-radius: 3px;
+        }
+        #output-json {
+            width: 100%;
+            min-height: 100px;
+            font-family: monospace;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f5f5f5;
+            margin-top: 10px;
+        }
+        .button-group {
+            margin: 15px 0;
+        }
+        button {
+            padding: 8px 15px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -26,16 +61,33 @@
 
     {% if image_source %}
         <h2>Draw Rectangles on the Image</h2>
+        <p>Click and drag to draw rectangles around meter digits.</p>
+        
+        <div id="coordinates-display">
+            <h3>Drawn Regions:</h3>
+            <ul id="regions-list"></ul>
+            <p id="no-regions-message">No regions drawn yet.</p>
+            
+            <h3>Output JSON (will be saved):</h3>
+            <textarea id="output-json" readonly></textarea>
+        </div>
+        
         <img id="image" src="{{ url_for('static', filename=image_source) }}" alt="Image" style="display: none;">
         <canvas id="canvas"></canvas>
-        <br>
-        <button id="saveButton">Save Regions</button>
+        
+        <div class="button-group">
+            <button id="saveButton">Save Regions</button>
+            <button id="clearButton">Clear All</button>
+        </div>
     {% endif %}
 
     <script>
         const image = document.getElementById("image");
         const canvas = document.getElementById("canvas");
         const ctx = canvas.getContext("2d");
+        const regionsList = document.getElementById("regions-list");
+        const noRegionsMessage = document.getElementById("no-regions-message");
+        const outputJson = document.getElementById("output-json");
 
         let regions = [];
         let startX, startY, isDrawing = false;
@@ -46,6 +98,32 @@
             canvas.height = image.height;
             redrawCanvas();
         };
+
+        // Function to update the output JSON display
+        function updateOutputJson() {
+            outputJson.value = JSON.stringify(regions, null, 2);
+        }
+
+        // Function to update the regions list display
+        function updateRegionsList() {
+            regionsList.innerHTML = '';
+            
+            if (regions.length === 0) {
+                noRegionsMessage.style.display = 'block';
+                outputJson.value = '[]';
+                return;
+            }
+            
+            noRegionsMessage.style.display = 'none';
+            
+            regions.forEach((region, index) => {
+                const li = document.createElement('li');
+                li.textContent = `Region ${index + 1}: (${region[0]}, ${region[1]}) to (${region[2]}, ${region[3]})`;
+                regionsList.appendChild(li);
+            });
+            
+            updateOutputJson();
+        }
 
         // Function to redraw the canvas
         function redrawCanvas() {
@@ -59,7 +137,13 @@
             regions.forEach(region => {
                 const [x1, y1, x2, y2] = region;
                 ctx.strokeStyle = "green";
+                ctx.lineWidth = 2;
                 ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                
+                // Add region number
+                ctx.fillStyle = "green";
+                ctx.font = "14px Arial";
+                ctx.fillText(`#${regions.indexOf(region) + 1}`, x1 + 5, y1 + 15);
             });
         }
 
@@ -80,7 +164,9 @@
                 const y1 = Math.min(startY, e.offsetY);
                 const x2 = Math.max(startX, e.offsetX);
                 const y2 = Math.max(startY, e.offsetY);
-                ctx.strokeStyle = "green";
+                
+                ctx.strokeStyle = "red";
+                ctx.lineWidth = 2;
                 ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
             }
         });
@@ -95,24 +181,56 @@
                 const x2 = Math.max(startX, e.offsetX);
                 const y2 = Math.max(startY, e.offsetY);
 
-                // Save the normalized region
-                regions.push([x1, y1, x2, y2]);
+                // Only save if the region is large enough
+                if (Math.abs(x2 - x1) > 10 && Math.abs(y2 - y1) > 10) {
+                    // Save the normalized region
+                    regions.push([x1, y1, x2, y2]);
+                    
+                    // Update the displays
+                    updateRegionsList();
+                }
 
                 // Redraw the canvas with all regions
                 redrawCanvas();
             }
         });
 
+        // Clear all regions
+        document.getElementById("clearButton").addEventListener("click", () => {
+            regions = [];
+            redrawCanvas();
+            updateRegionsList();
+        });
+
         // Save regions to the server
         document.getElementById("saveButton").addEventListener("click", () => {
+            if (regions.length === 0) {
+                alert("Please draw at least one region before saving.");
+                return;
+            }
+            
             fetch("/save_regions", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ regions }),
-            }).then(() => window.location.href = "/");
+            })
+            .then(response => {
+                if (response.ok) {
+                    window.location.href = "/";
+                } else {
+                    alert("Error saving regions. Please try again.");
+                }
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                alert("Error saving regions. Please try again.");
+            });
         });
+
+        // Initialize the displays
+        updateRegionsList();
     </script>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
