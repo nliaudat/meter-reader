@@ -45,6 +45,27 @@ button:hover {
     background-color: #f8d7da;
     color: #721c24;
 }
+
+.model-info {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    margin: 20px 0;
+    border-left: 4px solid #007bff;
+}
+
+.source-info {
+    background-color: #e9ecef;
+    padding: 10px;
+    border-radius: 3px;
+    margin-top: 10px;
+}
+
+.source-info h4 {
+    margin-top: 0;
+    color: #495057;
+}
+
 @media (max-width: 600px) {
     input[type="text"], input[type="file"] {
         width: 90%;
