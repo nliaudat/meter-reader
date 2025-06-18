@@ -30,7 +30,7 @@ meter (water, gas, electricity) reader from image to digits
 `optional arguments : --image_source http://192.168.1.113/img_tmp/alg.jpg --model model.tflite --regions regions.txt --no-gui --no-output-image`
 
 
-## Solutions 2 - webapp - flask_meter_reader : 
+## Solutions 2 - webapp - flask_meter_reader : (recommended and up to date)
 `pip install -r requirements.txt`
 
 `python app.py`
@@ -42,8 +42,7 @@ meter (water, gas, electricity) reader from image to digits
 (api is available)
   
 ## Todos: 
-* test and improve
-* make a hassio component (not actually possible cause nor tflite-runtime nor tensorflow supports python 3.13). Perhaps can hassio use venv ?
+* make a hassio component (not actually possible cause nor tflite-runtime nor tensorflow supports python 3.13). Perhaps can hassio use venv ? The actual solution use the docker image
 * make a scene text recognition model to recognise all digits in one shot. (actually investigating paddleOcr, OpenOcr, Parsec)
   
 
