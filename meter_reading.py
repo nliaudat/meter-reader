@@ -454,7 +454,7 @@ def main() -> None:
                        help=f"Model type to use (default: {DEFAULT_MODEL})")
     parser.add_argument("--regions", default=str(DEFAULT_REGIONS_FILE), 
                        help=f"Path to JSON file or string representation of regions (default: {DEFAULT_REGIONS_FILE})")
-    parser.add_argument("--image_source", required=True, 
+    parser.add_argument("--image_source", 
                        help="Path to local image file or URL of remote image")
     parser.add_argument("--no-gui", action="store_true", 
                        help="Disable GUI (no image display)")
@@ -472,7 +472,13 @@ def main() -> None:
             print_help()
             sys.exit(0)
 
-        # Validate arguments
+        # Now check for required arguments
+        if not args.image_source:
+            print_help()
+            logger.error("Error: --image_source is required")
+            sys.exit(1)
+
+        # Rest of the validation
         if not validate_arguments(args):
             print_help()
             sys.exit(1)
