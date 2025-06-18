@@ -22,6 +22,15 @@
         <label for="regions_source">Regions (JSON file or list):</label>
         <input type="text" id="regions_source" name="regions_source" placeholder="Enter regions as a list or JSON file path like regions.json">
         <br>
+		<label for="model_type">Select Model:</label>
+		<select id="model_type" name="model_type" class="form-control">
+		  {% for key, model in models.items() %}
+			<option value="{{ key }}" {% if key == default_model %}selected{% endif %}>
+			  {{ model.description }}
+			</option>
+		  {% endfor %}
+		</select>
+		<br>
         <button type="submit" aria-label="Process Image">Process</button>
     </form>
 
