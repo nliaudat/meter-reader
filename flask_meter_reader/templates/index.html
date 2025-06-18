@@ -25,7 +25,7 @@
 		<label for="model_type">Select Model:</label>
 		<select id="model_type" name="model_type" class="form-control">
 		  {% for key, model in models.items() %}
-			<option value="{{ key }}" {% if key == default_model %}selected{% endif %}>
+			<option value="{{ key }}" {% if key == model_type %}selected{% endif %}>
 			  {{ model.description }}
 			</option>
 		  {% endfor %}
@@ -59,17 +59,35 @@
         </ul>
         <h3>Final Meter Reading:</h3>
         <p>{{ final_reading }}</p>
-    {% endif %}
+		{% endif %}
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <ul class="flashes">
-                {% for category, message in messages %}
-                    <li class="{{ category }}">{{ message }}</li>
-                {% endfor %}
-            </ul>
-        {% endif %}
-    {% endwith %}
+		{% with messages = get_flashed_messages(with_categories=true) %}
+			{% if messages %}
+				<ul class="flashes">
+					{% for category, message in messages %}
+						<li class="{{ category }}">{{ message }}</li>
+					{% endfor %}
+				</ul>
+			{% endif %}
+		{% endwith %}
+	
+		<div class="model-info">
+			{% if model_type in models %}
+			<h3>Active Model: {{ model_type }}</h3>
+			<p>{{ models[model_type].description }}</p>
+			<div class="source-info">
+				<h4>Source Information:</h4>
+				<ul>
+					<li>Name: <a href="{{ models[model_type].source.url }}" target="_blank">
+						{{ models[model_type].source.name }}</a></li>
+					<li>License: {{ models[model_type].source.license }}</li>
+					<li>Notes: {{ models[model_type].source.notes }}</li>
+				</ul>
+			</div>
+			{% else %}
+			<p>No model information available</p>
+			{% endif %}
+		</div>
 
     <script>
         function validateForm() {
