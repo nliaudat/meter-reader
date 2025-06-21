@@ -27,10 +27,11 @@ meter (water, gas, electricity) reader from image to digits
   
 `python meter_reading.py`
 
+
 `optional arguments : --image_source http://192.168.1.113/img_tmp/alg.jpg --model model.tflite --regions regions.txt --no-gui --no-output-image`
 
 For testing all models : 
-`--test-all-models --expected_result 194619`
+`--test-all-models --expected_result 177663`
 
 ## Solutions 2 - docker/webapp - flask_meter_reader :
 `pip install -r requirements.txt`
