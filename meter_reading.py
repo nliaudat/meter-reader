@@ -353,11 +353,14 @@ Options:
   --no-gui                  Disable GUI (no image display)
   --no-output-image         Do not save the output image with annotations
   --no-confidence           Do not display confidence scores on output image
+  --test-all-models         Test all models with the same image and regions
+  --expected_result EXPECTED_RESULT The real number read by human (for comparison with model results)
 
 Examples:
   python meter_reading.py --model {DEFAULT_MODEL} --image_source sample.jpg
   python meter_reading.py --model {DEFAULT_MODEL} --regions custom_regions.json --image_source sample.jpg
   python meter_reading.py --model class10-0900 --regions "[[10,10,50,50],[60,60,100,100]]" --image_source http://example.com/image.jpg
+  python meter_reading.py --test-all-models --image_source test.jpg --expected_result 12345
 
 Note: If --regions is not specified, the script will look for {DEFAULT_REGIONS_FILE} in the current directory.
 """
@@ -444,6 +447,93 @@ def process_image(
                        (0, 165, 255), 2)
 
     return results
+    
+def test_all_models(
+    image_source: Union[str, Path],
+    regions_source: Union[str, Path] = DEFAULT_REGIONS_FILE,
+    output_file: Union[str, Path] = "model_comparison.csv",
+    expected_result: Optional[int] = None
+) -> None:
+    """
+    Test all available models with the same image and regions, comparing their confidence scores.
+    
+    Args:
+        image_source: Path or URL to the test image
+        regions_source: Path to regions file or string representation
+        output_file: Path to save the comparison results (CSV format)
+        expected_result: The real number read by human (for comparison)
+    """
+    # Load image and regions once
+    image = load_image(image_source)
+    if image is None:
+        logger.error(f"Failed to load image from {image_source}")
+        return
+
+    regions = load_regions(regions_source)
+    if not regions:
+        logger.error(f"No valid regions found in {regions_source}")
+        return
+
+    results = []
+    headers = ["Model", "Description", "Final Reading", "Correct"]
+    headers += [f"Digit {i+1} Confidence" for i in range(len(regions))]
+    headers.append("Average Confidence")
+
+    for model_name, model_config in MODELS.items():
+        try:
+            logger.info(f"\nTesting model: {model_name} - {model_config.description}")
+            meter_reader = MeterReader(model_name)
+            
+            # Process the image
+            result = process_image(meter_reader, image, regions, no_confidence=True)
+            
+            # Calculate average confidence
+            avg_confidence = np.mean(result["confidence_scores"]) if result["confidence_scores"] else 0
+            
+            # Check if prediction matches expected result
+            correct = "Yes" if expected_result is not None and result["final_reading"] == expected_result else "No"
+            
+            # Prepare row for CSV
+            row = {
+                "Model": model_name,
+                "Description": model_config.description,
+                "Final Reading": result["final_reading"],
+                "Correct": correct,
+                "Average Confidence": avg_confidence
+            }
+            
+            # Add individual digit confidences
+            for i, conf in enumerate(result["confidence_scores"]):
+                row[f"Digit {i+1} Confidence"] = conf
+            
+            results.append(row)
+            
+            logger.info(f"Results for {model_name}:")
+            logger.info(f"Final Reading: {result['final_reading']}")
+            if expected_result is not None:
+                logger.info(f"Expected Result: {expected_result}")
+                logger.info(f"Match: {'Yes' if correct == 'Yes' else 'No'}")
+            logger.info(f"Confidence Scores: {[f'{c:.2%}' for c in result['confidence_scores']]}")
+            logger.info(f"Average Confidence: {avg_confidence:.2%}")
+            
+        except Exception as e:
+            logger.error(f"Error testing model {model_name}: {str(e)}", exc_info=True)
+            continue
+
+    # Save results to CSV
+    try:
+        import csv
+        with open(output_file, 'w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=headers)
+            writer.writeheader()
+            for row in results:
+                writer.writerow(row)
+                
+        logger.info(f"\nComparison results saved to: {output_file}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save comparison results: {str(e)}", exc_info=True)  
+    
 
 def main() -> None:
     """Main function to handle command line execution."""
@@ -462,6 +552,10 @@ def main() -> None:
                        help="Do not save output image with annotations")
     parser.add_argument("--no-confidence", action="store_true", 
                        help="Do not display confidence scores")
+    parser.add_argument("--test-all-models", action="store_true",
+                       help="Test all models with the same image and regions")
+    parser.add_argument("--expected_result", type=int,
+                       help="The real number read by human (for comparison with model results)")
 
     try:
         # Parse the arguments
@@ -470,6 +564,15 @@ def main() -> None:
         # Show help and exit if --help is specified
         if args.help:
             print_help()
+            sys.exit(0)
+            
+        if args.test_all_models:
+            if not args.image_source:
+                print_help()
+                logger.error("Error: --image_source is required for testing all models")
+                sys.exit(1)
+                
+            test_all_models(args.image_source, args.regions, expected_result=args.expected_result)
             sys.exit(0)
 
         # Now check for required arguments
@@ -513,6 +616,9 @@ def main() -> None:
         logger.info(f"Processed Readings: {results['processed_readings']}")
         logger.info(f"Confidence Scores: {[int(round(score * 100)) for score in results['confidence_scores']]}")
         logger.info(f"Final Reading: {results['final_reading']}")
+        if args.expected_result is not None:
+            logger.info(f"Expected Result: {args.expected_result}")
+            logger.info(f"Match: {'Yes' if results['final_reading'] == args.expected_result else 'No'}")
         logger.info(f"{'='*50}\n")
 
         # Save result image if not disabled
