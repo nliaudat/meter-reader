@@ -2,26 +2,31 @@
 # for flashing : press boot button for 2-3 seconds before the serial connection initialize
 # After OTA update, the EN (reset) button must be pressed to run firmware
 
-
-
-##### temporary fix to use new camera component 
 external_components:
   - source: github://pr#7639 #https://github.com/esphome/esphome/pull/7639
-    refresh: 30s
-    components:
-      - camera
-      - esp32_camera
-      - esp32_camera_web_server
+    components: [camera, camera_encoder, camera_scaler, esp32_camera, template]
+    refresh: 1h
+
+
+
+#### temporary fix to use new camera component 
+# external_components:
+  # - source: github://pr#9459 https://github.com/esphome/esphome/pull/9459
+    # refresh: 30s
+    # components:
+      # - camera
+      # - camera_encoder
 
 
 
 ############## General configuration
 
 substitutions:
-  name: meter-reader-hot-water #no special caracters
-  friendly_name: "Meter reader Hot Water"
-  id_prefix: "meter_reader_hot_water_" #if you have more than one board, it could be usefull to remane all the "id:prefix_xxxx" with a decicaded prefix
-  revision: "1.2"
+
+  name: s3cam #no special caracters
+  friendly_name: "S3 camera"
+  id_prefix: "s3_cam" #if you have more than one board, it could be usefull to remane all the "id:prefix_xxxx" with a decicaded prefix
+  revision: "1.0"
     
   #time
   TZ: "Europe/Zurich" #timezone
@@ -40,28 +45,75 @@ ota:
 
 safe_mode:
 
-# to disable when tests are done
-# web_server:
-  # port: 80
-  # include_internal: true
-  # local: true
-
-# to disable when tests are done
-# esp32_camera_web_server:
-  # - port: 8080
-    # mode: stream
-  # - port: 8081
-    # mode: snapshot
-  
-# web_server:
-  # port: 80
-  # version: 3
-  # log: true
-  # local: false #true in case of no internet
-  
-# Enable HOME Assistant API
 api:
   reboot_timeout: 30min
+
+#################################################
+######### NEW CAMERA COMPONENT ##################
+#################################################
+
+## cannot go to camera.yaml actually. Mean cause PR
+
+camera_encoder:
+    id: jpeg_encoder
+    quality: BEST # [BEST|HIGH|MED|LOW]
+    subsampling: 444 #[444|420]
+    mcu_count: 256
+
+camera:
+  - platform: template
+    name: Test Camera
+    camera_encoder_id: jpeg_encoder
+    width: 512
+    height: 256
+    image_format: RGB888
+    on_capture_image:
+      - lambda: |-
+          static uint8_t cnt = 0;
+          uint8_t *rgb = image.data;
+          int16_t pixel_cnt = 0;
+          while (context.y < spec.height) {
+            while (context.x < spec.width) {
+              int idx = (context.y * spec.width + context.x) * spec.bytes_per_pixel();
+              rgb[idx + 0] = cnt + context.x;
+              rgb[idx + 1] = cnt + context.y;
+              rgb[idx + 2] = cnt + context.x + context.y;
+              if (context.x < 10 && context.y < 10) {
+                rgb[idx + 0] = 255;
+                rgb[idx + 1] = 0;
+                rgb[idx + 2] = 0;
+              } else if (context.x > 53 && context.y < 10) {
+                rgb[idx + 0] = 0;
+                rgb[idx + 1] = 255;
+                rgb[idx + 2] = 0;
+              } else if (context.x < 10 && context.y > 53){
+                rgb[idx + 0] = 0;
+                rgb[idx + 1] = 0;
+                rgb[idx + 2] = 255;
+              } else if (context.x > 53 && context.y > 53){
+                rgb[idx + 0] = 255;
+                rgb[idx + 1] = 255;
+                rgb[idx + 2] = 0;
+              } else if (context.x >= 27 && context.x < 37 && context.y >= 27 && context.y < 37){
+                rgb[idx + 0] = 0;
+                rgb[idx + 1] = 0;
+                rgb[idx + 2] = 0;
+              }
+              ++context.x;
+              ++pixel_cnt;
+            }
+            context.x = 0;
+            ++context.y;
+            // Incremental image capture. Capture only 16384 pixels in one loop()
+            if (pixel_cnt >= 16384) {
+              context.done = false;
+              return;
+            }
+          }
+          cnt = (cnt + 1) % 128;
+
+
+
 
 packages:
   board: !include board_freenove_esp32-s3-n8r8.yaml
@@ -71,8 +123,8 @@ packages:
   switch_others: !include switch_others.yaml
   sensor_others: !include sensor_others.yaml
   camera_options: !include camera_options.yaml
-  camera: !include camera.yaml
-  camera_webserver: !include camera_webserver.yaml
+  esp32_camera: !include esp32_camera.yaml
+  # camera_webserver: !include camera_webserver.yaml
   globals: !include globals.yaml
 
 
