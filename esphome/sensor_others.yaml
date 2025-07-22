@@ -1,12 +1,5 @@
 
 sensor:
-  - platform: wifi_signal
-    name: "${friendly_name} WiFi Signal"
-    update_interval: 60s
-    entity_category: "diagnostic"
-    id: ${id_prefix}wifi_signal_db
-    # web_server:
-      # sorting_group_id: sorting_group_sensors
     
   - platform: uptime
     name: "${friendly_name} Uptime"    

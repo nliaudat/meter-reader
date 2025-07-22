@@ -9,13 +9,11 @@ esphome:
   name_add_mac_suffix: False # this appends to 'name' NOT 'friendly_name'      
   on_loop:
     - lambda: |-
-        if(id(${id_prefix}wifi_component).is_connected()) {
           if (id(${id_prefix}espcam_update)) {
             id(${id_prefix}espcam).update_camera_parameters();
             if(id(${id_prefix}debug)) { id(${id_prefix}espcam).dump_config(); }
             id(${id_prefix}espcam_update) = false;
           }
-        }
 
   project:
     name: "Prokyber.AI-On-The-Edge-Cam"
