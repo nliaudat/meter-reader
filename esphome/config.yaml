@@ -7,16 +7,9 @@ external_components:
     components: [camera, camera_encoder, camera_scaler, esp32_camera, template]
     refresh: 1h
 
-
-
-#### temporary fix to use new camera component 
-# external_components:
-  # - source: github://pr#9459 https://github.com/esphome/esphome/pull/9459
-    # refresh: 30s
-    # components:
-      # - camera
-      # - camera_encoder
-
+## only if sdcard
+  # - source: github://mnark/esphome-components
+    # components: [sdmmc]
 
 
 ############## General configuration
@@ -50,6 +43,7 @@ api:
 
 #################################################
 ######### NEW CAMERA COMPONENT ##################
+#### https://github.com/esphome/esphome/pull/7639
 #################################################
 
 ## cannot go to camera.yaml actually. Mean cause PR
@@ -116,7 +110,8 @@ camera:
 
 
 packages:
-  board: !include board_freenove_esp32-s3-n8r8.yaml
+  # board: !include board_freenove_esp32-s3-n8r8.yaml
+  board: !include AI-On-The-Edge-Cam_Esp32-S3.yaml
   logger: !include logger.yaml
   wifi: !include wifi.yaml
   time: !include time.yaml

@@ -1,0 +1,180 @@
+# https://www.tindie.com/products/allexok/ai-on-the-edge-cam-esp32-s3-with-poe-sd-camera/
+# https://github.com/jomjol/AI-on-the-edge-device/discussions/2963
+
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2025.7.0
+  name_add_mac_suffix: False # this appends to 'name' NOT 'friendly_name'      
+  on_loop:
+    - lambda: |-
+        if(id(${id_prefix}wifi_component).is_connected()) {
+          if (id(${id_prefix}espcam_update)) {
+            id(${id_prefix}espcam).update_camera_parameters();
+            if(id(${id_prefix}debug)) { id(${id_prefix}espcam).dump_config(); }
+            id(${id_prefix}espcam_update) = false;
+          }
+        }
+
+  project:
+    name: "Prokyber.AI-On-The-Edge-Cam"
+    version: "${revision}.dev"
+  platformio_options:
+    board_build.f_cpu: 240000000L
+    board_build.f_flash: 80000000L
+    board_build.flash_size: 16MB
+    board_build.arduino.memory_type: opi_opi
+    board_build.flash_mode: dio # opi
+    board_build.psram_type: opi
+    board_upload.maximum_size: 16777216
+    # board_build.partitions: default_16MB.csv
+    board_build.extra_flags: -DBOARD_HAS_PSRAM
+    board_name: AI-On-The-Edge-Cam Esp32-S3 (N16R8) #https://www.tindie.com/products/allexok/ai-on-the-edge-cam-esp32-s3-with-poe-sd-camera/
+
+
+substitutions:
+  #board and compilation
+  board: esp32-s3-devkitc-1
+  framework: esp-idf 
+
+
+  # Power control pins
+  eth_enable_pin: GPIO45
+  per_enable_pin: GPIO46
+  
+  # Ethernet SPI Configuration
+  eth_mosi_pin: GPIO1
+  eth_miso_pin: GPIO14
+  eth_clk_pin: GPIO21
+  eth_cs_pin: GPIO39
+  eth_int_pin: GPIO38
+  
+  # SD Card Configuration
+  sdcard_clk_pin: GPIO40
+  sdcard_cmd_pin: GPIO42
+  sdcard_d0_pin: GPIO41
+  
+  # Camera Pins 
+  external_clock_pin: GPIO15
+  external_clock_frequency: 20MHz
+  i2c_pins_sda: GPIO4
+  i2c_pins_scl: GPIO5
+  data_pins:
+    - GPIO11  # CAM_D0
+    - GPIO9   # CAM_D1
+    - GPIO8   # CAM_D2
+    - GPIO10  # CAM_D3
+    - GPIO47  # CAM_D4
+    - GPIO18  # CAM_D5
+    - GPIO17  # CAM_D6
+    - GPIO16  # CAM_D7
+  vsync_pin: GPIO6
+  href_pin: GPIO7
+  pixel_clock_pin: GPIO13
+  
+  # LED Pins
+  status_led_pin: GPIO48
+  flash_led_pin: GPIO12
+  
+# Ethernet Configuration
+# ethernet:
+  # type: W5500
+  # clk_pin: ${eth_clk_pin}
+  # mosi_pin: ${eth_mosi_pin}
+  # miso_pin: ${eth_miso_pin}
+  # cs_pin: ${eth_cs_pin}
+  # interrupt_pin: ${eth_int_pin}
+  # reset_pin: GPIO0
+  
+# spi:
+  # clk_pin: ${eth_clk_pin}
+  # mosi_pin: ${eth_mosi_pin}
+  # miso_pin: ${eth_miso_pin}
+  
+# SD Card Configuration
+
+### need external_components in config.yaml
+  # - source: github://mnark/esphome-components
+    # components: [sdmmc]
+ 
+# sdmmc:
+  # id: sdcard
+  # name: "SD Card"
+  # command_pin: ${sdcard_cmd_pin}
+  # clock_pin: ${sdcard_clk_pin}
+  # data_pin: ${sdcard_d0_pin}
+
+esp32:
+  board: ${board} 
+  variant: esp32s3 
+  flash_size: 16MB
+  framework:
+    type: ${framework} 
+    version: recommended
+    sdkconfig_options:
+      CONFIG_COMPILER_OPTIMIZATION_SIZE: y
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY: "y"
+      CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP: "y"
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+      CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+      CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"
+      CONFIG_FATFS_LFN_STACK: "y" # to support long file name in sdcard
+      CONFIG_TASK_WDT: "y" # prevents watchdog timeouts
+      CONFIG_TASK_WDT_TIMEOUT_S: "30" # prevents watchdog timeouts
+      CONFIG_TASK_WDT_CHECK_IDLE_TASK_CPU0: "n" # prevents watchdog timeouts
+
+    
+psram:
+  mode: octal
+  speed: 80MHz
+    
+
+  
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    pin: ${flash_led_pin} 
+    num_leds: 4
+    # rmt_channel: 0 # only for arduino framework
+    chipset: ws2812
+    name: "flash"
+    id: ${id_prefix}flash
+    effects:
+      - addressable_scan:
+          name: "Scan Effect"
+          move_interval: 100ms
+          scan_width: 1
+      - addressable_rainbow:
+          name: "Rainbow Effect"
+          speed: 10
+          width: 50
+      - pulse:
+          name: "Slow Pulse"
+          transition_length: 500ms
+          update_interval: 2s
+  - platform: status_led
+    name: "${name} Status LED"
+    id: ${id_prefix}status_led
+    icon: "mdi:alarm-light"
+    restore_mode: ALWAYS_OFF
+    pin: ${status_led_pin}
+    
+
+    
+# Power management  (not used)
+output:
+  - platform: gpio
+    pin: GPIO45
+    id: eth_power
+    inverted: true
+  - platform: gpio
+    pin: GPIO46
+    id: periph_power
+    inverted: true
+    
