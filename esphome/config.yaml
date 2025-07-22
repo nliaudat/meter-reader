@@ -114,6 +114,7 @@ packages:
   board: !include AI-On-The-Edge-Cam_Esp32-S3.yaml
   logger: !include logger.yaml
   wifi: !include wifi.yaml
+  # lan: !include lan.yaml # only for AI-On-The-Edge-Cam_Esp32-S3.yaml + wifi must be disabled
   time: !include time.yaml
   switch_others: !include switch_others.yaml
   sensor_others: !include sensor_others.yaml

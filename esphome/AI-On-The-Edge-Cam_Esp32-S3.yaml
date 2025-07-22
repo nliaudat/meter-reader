@@ -75,20 +75,6 @@ substitutions:
   status_led_pin: GPIO48
   flash_led_pin: GPIO12
   
-# Ethernet Configuration
-# ethernet:
-  # type: W5500
-  # clk_pin: ${eth_clk_pin}
-  # mosi_pin: ${eth_mosi_pin}
-  # miso_pin: ${eth_miso_pin}
-  # cs_pin: ${eth_cs_pin}
-  # interrupt_pin: ${eth_int_pin}
-  # reset_pin: GPIO0
-  
-# spi:
-  # clk_pin: ${eth_clk_pin}
-  # mosi_pin: ${eth_mosi_pin}
-  # miso_pin: ${eth_miso_pin}
   
 # SD Card Configuration
 
