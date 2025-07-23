@@ -6,10 +6,24 @@ external_components:
   - source: github://pr#7639 #https://github.com/esphome/esphome/pull/7639
     components: [camera, camera_encoder, camera_scaler, esp32_camera, template]
     refresh: 1h
+   
+## only if sdcard   
+##### sdcard component are not compatible now for esphome 2025.7 : C++20 compatibility +ESP-IDF 5.3.2 introduced changes to SPI/SDMMC drivers
 
-## only if sdcard
+  # - source: github://n-serrette/esphome_sd_card@main  # Explicit branch
+    # components: [sd_mmc_card]
+    
+    
+  - source:
+      type: git
+      url: https://github.com/n-serrette/esphome_sd_card
+      ref: refs/pull/26/head  # Specific reference to PR #26
+    components: [sd_mmc_card]
+
+
   # - source: github://mnark/esphome-components
     # components: [sdmmc]
+    # refresh: 1h
 
 
 ############## General configuration
@@ -105,7 +119,6 @@ camera:
             }
           }
           cnt = (cnt + 1) % 128;
-
 
 
 

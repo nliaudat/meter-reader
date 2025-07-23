@@ -14,6 +14,19 @@ esphome:
             if(id(${id_prefix}debug)) { id(${id_prefix}espcam).dump_config(); }
             id(${id_prefix}espcam_update) = false;
           }
+  on_boot:
+    # Priority set to high to run before WiFi connects
+    priority: 600
+    then:
+      - if:
+          condition:
+            wifi.enabled:
+          then:
+            - output.turn_off: eth_power
+            - logger.log: "WiFi is enabled - disabling Ethernet power"
+          else:
+            - output.turn_on: eth_power
+            - logger.log: "WiFi is disabled - enabling Ethernet power"
 
   project:
     name: "Prokyber.AI-On-The-Edge-Cam"
@@ -42,6 +55,7 @@ substitutions:
   per_enable_pin: GPIO46
   
   # Ethernet SPI Configuration
+  # need lan.yaml to be activated in config.yaml
   eth_mosi_pin: GPIO1
   eth_miso_pin: GPIO14
   eth_clk_pin: GPIO21
@@ -49,9 +63,10 @@ substitutions:
   eth_int_pin: GPIO38
   
   # SD Card Configuration
-  sdcard_clk_pin: GPIO40
-  sdcard_cmd_pin: GPIO42
-  sdcard_d0_pin: GPIO41
+  sdcard_clk_pin: GPIO40 #SD_SCLK
+  sdcard_cmd_pin: GPIO42 #SD_MOSI
+  sdcard_d0_pin: GPIO41 #SD_MISO
+  sdcard_d3_pin: GPIO3 #SD_CS, CD/DAT3
   
   # Camera Pins 
   external_clock_pin: GPIO15
@@ -76,18 +91,6 @@ substitutions:
   flash_led_pin: GPIO12
   
   
-# SD Card Configuration
-
-### need external_components in config.yaml
-  # - source: github://mnark/esphome-components
-    # components: [sdmmc]
- 
-# sdmmc:
-  # id: sdcard
-  # name: "SD Card"
-  # command_pin: ${sdcard_cmd_pin}
-  # clock_pin: ${sdcard_clk_pin}
-  # data_pin: ${sdcard_d0_pin}
 
 esp32:
   board: ${board} 
@@ -118,7 +121,7 @@ psram:
   mode: octal
   speed: 80MHz
     
-
+######## LIGHTS
   
 light:
   - platform: esp32_rmt_led_strip
@@ -151,14 +154,122 @@ light:
     
 
     
-# Power management  (not used)
+######## Power management (wifi or ethernet)
 output:
   - platform: gpio
-    pin: GPIO45
+    pin: ${eth_enable_pin}
     id: eth_power
     inverted: true
   - platform: gpio
-    pin: GPIO46
+    pin: ${per_enable_pin}
     id: periph_power
     inverted: true
     
+switch:
+  - platform: template
+    name: "Ethernet Power"
+    id: eth_power_switch
+    icon: "mdi:ethernet"
+    turn_on_action:
+      - output.turn_on: eth_power
+      - delay: 500ms
+    turn_off_action:
+      - output.turn_off: eth_power
+
+  - platform: template
+    name: "Peripheral Power"
+    id: periph_power_switch
+    icon: "mdi:camera"
+    turn_on_action:
+      - output.turn_on: periph_power
+      - delay: 1000ms
+    turn_off_action:
+      - output.turn_off: periph_power
+
+  - platform: template
+    name: "WiFi Power"
+    id: wifi_power_switch
+    icon: "mdi:wifi"
+    lambda: |-
+      return id(${id_prefix}wifi_component).is_connected();  // Use the id set in wifi.yaml
+    turn_on_action:
+      - delay: 100ms  
+    turn_off_action:
+      - delay: 100ms
+
+          
+          
+######## SD Card Configuration
+
+## need external_components in config.yaml
+## as of 23.07.2025, the PR #26 must be called as it fixes changes in esphome 2025.7
+  # - source:
+      # type: git
+      # url: https://github.com/n-serrette/esphome_sd_card
+      # ref: refs/pull/26/head  # Specific reference to PR #26
+    # components: [sd_mmc_card]
+
+sd_mmc_card:
+  id: sdcard
+  mode_1bit: true  # Required for SPI mode
+  clk_pin: ${sdcard_clk_pin} #SD_SCLK
+  cmd_pin: ${sdcard_cmd_pin}  #SD_MOSI
+  data0_pin: ${sdcard_d0_pin}  #SD_MISO
+  data3_pin: ${sdcard_d3_pin} #SD_CS, CD/DAT3
+  
+
+    
+## sample esp32_camera on_image trigger : 
+
+#   on_image:
+    # then:
+      # - if:
+          # condition:
+            # lambda: "return id(await_capture_state);"
+          # then:
+            # - sd_mmc_card.write_file:
+                # path: !lambda "return \"/test_\" + id(sntp_time).now().strftime(\"%FT%H-%M-%S\") + \".jpg\";" 
+                # data: !lambda "return std::vector<uint8_t>(&image.data[0], &image.data[image.length]);"
+            # - logger.log: "image saved"
+            # - lambda: "id(await_capture_state) = false;"
+            # - sd_mmc_card.delete_file:
+                # path: "/test.txt"
+            # - sd_mmc_card.create_directory:
+                # path: "/test"
+            # - sd_mmc_card.remove_directory:
+                # path: "/test"
+  
+sensor:
+  - platform: sd_mmc_card
+    type: used_space
+    unit_of_measurement: Mb
+    name: "SD card used space"
+    filters:
+      - lambda: return sd_mmc_card::convertBytes(x, sd_mmc_card::MemoryUnits::MegaByte);
+
+  - platform: sd_mmc_card
+    type: total_space
+    name: "SD card total space"
+    unit_of_measurement: Gb
+    filters:
+      - lambda: return sd_mmc_card::convertBytes(x, sd_mmc_card::MemoryUnits::GigaByte);
+
+  - platform: sd_mmc_card
+    type: free_space
+    name: "SD card free space"
+    unit_of_measurement: Gb
+    filters:
+      - lambda: return sd_mmc_card::convertBytes(x, sd_mmc_card::MemoryUnits::GigaByte);
+
+  # - platform: sd_mmc_card
+    # type: file_size
+    # name: "text.txt size"
+    # unit_of_measurement: Kb
+    # path: "/test.txt"
+    # filters:
+      # - lambda: return sd_mmc_card::convertBytes(x, sd_mmc_card::MemoryUnits::KiloByte);
+
+text_sensor:
+  - platform: sd_mmc_card
+    sd_card_type:
+      name: "SD card type"
