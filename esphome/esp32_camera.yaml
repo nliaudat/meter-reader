@@ -42,14 +42,18 @@ esp32_camera:
   #   Therefore, changing these parameters on the fly will have no effect
   #   Perhaps this will get changed at some point
   #resolution: 800x600 
-  resolution: 320X240 # for testing, quicker screen reactions
-  jpeg_quality: 10 #40 #12
+  resolution: ${camera_resolution} #${camera_width}X${camera_height}    #320X240 # for testing, quicker screen reactions
+  jpeg_quality: ${camera_jpeg_quality} #10 #40 #12
   # Frame Settings
   # max_framerate: 10fps
   # idle_framerate: 0.1fps # 10sec
-  max_framerate: 1fps
-  idle_framerate: 0.1fps # 10sec
-  frame_buffer_count: 2
+  max_framerate: ${camera_max_framerate} #1fps
+  idle_framerate: ${camera_idle_framerate} #0.1fps # 10sec
+  # frame_buffer_count: 2
+  
+  ## new with https://github.com/esphome/esphome/pull/9496
+  pixel_format: ${camera_pixel_format}
+  frame_buffer_location: PSRAM
 
   # The following parameters can be changed on the fly after the camera is started
   #  by calling update_camera_parameters() in lambda
@@ -68,7 +72,7 @@ esp32_camera:
   aec_value: 580
   # gain settings
   agc_mode: AUTO
-  agc_gain_ceiling: 8X
+  agc_gain_ceiling: 2X
   agc_value: 0
   # white balance setting
   wb_mode: AUTO
@@ -88,6 +92,47 @@ esp32_camera:
     # then:
     # - lambda: |-
         # ESP_LOGD("main", "AUTOMATION: on_stream_stop");
+        
+# Global variable to track stream state
+# globals:
+  # - id: camera_stream_active
+    # type: bool
+    # restore_value: yes
+    # initial_value: 'false'
+
+# #Binary switch to control the stream
+# switch:
+  # - platform: template
+    # name: "Camera Stream Control"
+    # id: camera_stream_switch
+    # icon: "mdi:camera"
+    # restore_mode: RESTORE_DEFAULT_OFF
+    # lambda: |-
+      # return id(camera_stream_active);
+    # turn_on_action:
+      # - script.execute: start_camera_stream
+    # turn_off_action:
+      # - script.execute: stop_camera_stream
+
+# #Scripts to handle stream control
+# script:
+  # - id: start_camera_stream
+    # then:
+      # - lambda: |-
+          # // Create a dummy requester
+          # static auto requester = camera::CameraRequester();
+          # id(${id_prefix}espcam).start_stream(requester);
+          # id(camera_stream_active) = true;
+          # id(camera_stream_switch).publish_state(true);
+          
+  # - id: stop_camera_stream
+    # then:
+      # - lambda: |-
+          # // Create a dummy requester
+          # static auto requester = camera::CameraRequester();
+          # id(${id_prefix}espcam).stop_stream(requester);
+          # id(camera_stream_active) = false;
+          # id(camera_stream_switch).publish_state(false);
   
   
 # Include the HTTP Request component in your ESPHome configuration

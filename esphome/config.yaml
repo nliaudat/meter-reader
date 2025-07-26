@@ -2,13 +2,21 @@
 # for flashing : press boot button for 2-3 seconds before the serial connection initialize
 # After OTA update, the EN (reset) button must be pressed to run firmware
 
+# external_components:
+  # - source: github://pr#7639 #https://github.com/esphome/esphome/pull/7639
+    # components: [camera, camera_encoder, camera_scaler, esp32_camera, template]
+    # refresh: 1h
+   
+   
+   
+   
 external_components:
-  - source: github://pr#7639 #https://github.com/esphome/esphome/pull/7639
-    components: [camera, camera_encoder, camera_scaler, esp32_camera, template]
+  - source: github://pr#9496 #https://github.com/esphome/esphome/pull/9496
+    components: [esp32_camera]
     refresh: 1h
    
 ## only if sdcard   
-##### sdcard component are not compatible now for esphome 2025.7 : C++20 compatibility +ESP-IDF 5.3.2 introduced changes to SPI/SDMMC drivers
+##### sdcard component are not compatible now for esphome 2025.7 : ESP-IDF 5.3.2 introduced changes to SPI/SDMMC drivers
 
   # - source: github://n-serrette/esphome_sd_card@main  # Explicit branch
     # components: [sd_mmc_card]
@@ -30,10 +38,22 @@ external_components:
 
 substitutions:
 
+  # board_has_lan: "false"   # if using ethernet in AI-On-The-Edge-Cam_Esp32-S3.yaml
+  # network_mode: "wifi" # or "lan" 
+
   name: s3cam #no special caracters
   friendly_name: "S3 camera"
   id_prefix: "s3_cam" #if you have more than one board, it could be usefull to remane all the "id:prefix_xxxx" with a decicaded prefix
   revision: "1.0"
+  
+  # camera
+  camera_pixel_format: JPEG #RGB888 #  Displays: RGB565, RGB888 | Cameras: YUV422, YUV420, RAW | Efficiency: Grayscale, YUV420, JPEG
+  # camera_width: 640
+  # camera_height: 480
+  camera_resolution: 800x600 #https://esphome.io/components/esp32_camera.html
+  camera_jpeg_quality: 10 # From 10 (best) to 63 (worst).
+  camera_max_framerate: 5fps
+  camera_idle_framerate: 0.1fps # 10sec
     
   #time
   TZ: "Europe/Zurich" #timezone
@@ -62,78 +82,102 @@ api:
 
 ## cannot go to camera.yaml actually. Mean cause PR
 
-camera_encoder:
-    id: jpeg_encoder
-    quality: BEST # [BEST|HIGH|MED|LOW]
-    subsampling: 444 #[444|420]
-    mcu_count: 256
 
-camera:
-  - platform: template
-    name: Test Camera
-    camera_encoder_id: jpeg_encoder
-    width: 512
-    height: 256
-    image_format: RGB888
-    on_capture_image:
-      - lambda: |-
-          static uint8_t cnt = 0;
-          uint8_t *rgb = image.data;
-          int16_t pixel_cnt = 0;
-          while (context.y < spec.height) {
-            while (context.x < spec.width) {
-              int idx = (context.y * spec.width + context.x) * spec.bytes_per_pixel();
-              rgb[idx + 0] = cnt + context.x;
-              rgb[idx + 1] = cnt + context.y;
-              rgb[idx + 2] = cnt + context.x + context.y;
-              if (context.x < 10 && context.y < 10) {
-                rgb[idx + 0] = 255;
-                rgb[idx + 1] = 0;
-                rgb[idx + 2] = 0;
-              } else if (context.x > 53 && context.y < 10) {
-                rgb[idx + 0] = 0;
-                rgb[idx + 1] = 255;
-                rgb[idx + 2] = 0;
-              } else if (context.x < 10 && context.y > 53){
-                rgb[idx + 0] = 0;
-                rgb[idx + 1] = 0;
-                rgb[idx + 2] = 255;
-              } else if (context.x > 53 && context.y > 53){
-                rgb[idx + 0] = 255;
-                rgb[idx + 1] = 255;
-                rgb[idx + 2] = 0;
-              } else if (context.x >= 27 && context.x < 37 && context.y >= 27 && context.y < 37){
-                rgb[idx + 0] = 0;
-                rgb[idx + 1] = 0;
-                rgb[idx + 2] = 0;
-              }
-              ++context.x;
-              ++pixel_cnt;
-            }
-            context.x = 0;
-            ++context.y;
-            // Incremental image capture. Capture only 16384 pixels in one loop()
-            if (pixel_cnt >= 16384) {
-              context.done = false;
-              return;
-            }
-          }
-          cnt = (cnt + 1) % 128;
 
+# camera_encoder:
+    # id: jpeg_encoder
+    # quality: BEST # [BEST|HIGH|MED|LOW]
+    # subsampling: 444 #[444|420]
+    # mcu_count: 256
+
+# camera:
+  # - platform: template
+    # name: Test Camera
+    # camera_encoder_id: jpeg_encoder
+    # width: ${camera_width} #512
+    # height: ${camera_height} #256
+    # image_format: ${camera_pixel_format} #JPEG #RGB888 #     Displays: RGB565, RGB888 | Cameras: YUV422, YUV420, RAW | Efficiency: Grayscale, YUV420, JPEG
+    # on_capture_image:
+      # - lambda: |-
+          # static uint8_t cnt = 0;
+          # uint8_t *rgb = image.data;
+          # int16_t pixel_cnt = 0;
+          # while (context.y < spec.height) {
+            # while (context.x < spec.width) {
+              # int idx = (context.y * spec.width + context.x) * spec.bytes_per_pixel();
+              # rgb[idx + 0] = cnt + context.x;
+              # rgb[idx + 1] = cnt + context.y;
+              # rgb[idx + 2] = cnt + context.x + context.y;
+              # if (context.x < 10 && context.y < 10) {
+                # rgb[idx + 0] = 255;
+                # rgb[idx + 1] = 0;
+                # rgb[idx + 2] = 0;
+              # } else if (context.x > 53 && context.y < 10) {
+                # rgb[idx + 0] = 0;
+                # rgb[idx + 1] = 255;
+                # rgb[idx + 2] = 0;
+              # } else if (context.x < 10 && context.y > 53){
+                # rgb[idx + 0] = 0;
+                # rgb[idx + 1] = 0;
+                # rgb[idx + 2] = 255;
+              # } else if (context.x > 53 && context.y > 53){
+                # rgb[idx + 0] = 255;
+                # rgb[idx + 1] = 255;
+                # rgb[idx + 2] = 0;
+              # } else if (context.x >= 27 && context.x < 37 && context.y >= 27 && context.y < 37){
+                # rgb[idx + 0] = 0;
+                # rgb[idx + 1] = 0;
+                # rgb[idx + 2] = 0;
+              # }
+              # ++context.x;
+              # ++pixel_cnt;
+            # }
+            # context.x = 0;
+            # ++context.y;
+            # // Incremental image capture. Capture only 16384 pixels in one loop()
+            # if (pixel_cnt >= 16384) {
+              # context.done = false;
+              # return;
+            # }
+          # }
+          # cnt = (cnt + 1) % 128;
+
+
+
+# network:
+    # enable_ipv6: false
+    
+    
+# web_server:
+  # port: 80
 
 
 packages:
   # board: !include board_freenove_esp32-s3-n8r8.yaml
   board: !include AI-On-The-Edge-Cam_Esp32-S3.yaml
   logger: !include logger.yaml
+  
+# Use Jinja2 conditionals (not working)
+# {% if board_has_lan == "true" %}
+# <<: !include lan.yaml
+# {% else %}
+# <<: !include wifi.yaml
+# {% endif %}
+
+  # network: !include "{{ network_mode }}.yaml"
+    
   wifi: !include wifi.yaml
   # lan: !include lan.yaml # only for AI-On-The-Edge-Cam_Esp32-S3.yaml + wifi must be disabled
+  
+
+
+  
   time: !include time.yaml
   switch_others: !include switch_others.yaml
   sensor_others: !include sensor_others.yaml
   camera_options: !include camera_options.yaml
   esp32_camera: !include esp32_camera.yaml
-  # camera_webserver: !include camera_webserver.yaml
+  camera_webserver: !include camera_webserver.yaml
   globals: !include globals.yaml
 
 

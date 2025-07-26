@@ -14,19 +14,19 @@ esphome:
             if(id(${id_prefix}debug)) { id(${id_prefix}espcam).dump_config(); }
             id(${id_prefix}espcam_update) = false;
           }
-  on_boot:
-    # Priority set to high to run before WiFi connects
-    priority: 600
-    then:
-      - if:
-          condition:
-            wifi.enabled:
-          then:
-            - output.turn_off: eth_power
-            - logger.log: "WiFi is enabled - disabling Ethernet power"
-          else:
-            - output.turn_on: eth_power
-            - logger.log: "WiFi is disabled - enabling Ethernet power"
+# << if use_wifi == "true" >>
+  # on_boot:
+    # priority: 600
+    # then:
+      # - output.turn_off: eth_power
+      # - logger.log: "WiFi is enabled - disabling Ethernet power"
+# << else >>
+  # on_boot:
+    # priority: 600
+    # then:
+      # - output.turn_on: eth_power
+      # - logger.log: "WiFi is disabled - enabling Ethernet power"
+# << endif >>
 
   project:
     name: "Prokyber.AI-On-The-Edge-Cam"
@@ -39,7 +39,6 @@ esphome:
     board_build.flash_mode: dio # opi
     board_build.psram_type: opi
     board_upload.maximum_size: 16777216
-    # board_build.partitions: default_16MB.csv
     board_build.extra_flags: -DBOARD_HAS_PSRAM
     board_name: AI-On-The-Edge-Cam Esp32-S3 (N16R8) #https://www.tindie.com/products/allexok/ai-on-the-edge-cam-esp32-s3-with-poe-sd-camera/
 
@@ -115,6 +114,10 @@ esp32:
       CONFIG_TASK_WDT: "y" # prevents watchdog timeouts
       CONFIG_TASK_WDT_TIMEOUT_S: "30" # prevents watchdog timeouts
       CONFIG_TASK_WDT_CHECK_IDLE_TASK_CPU0: "n" # prevents watchdog timeouts
+      ### needed by new jpeg camera : https://github.com/esphome/esphome/pull/9496
+      CONFIG_SPIRAM_SUPPORT: y
+      CONFIG_SPIRAM_USE_CAPS_ALLOC: y
+      CONFIG_SPIRAM_USE_MALLOC: y
 
     
 psram:
@@ -147,7 +150,7 @@ light:
           update_interval: 2s
   - platform: status_led
     name: "${name} Status LED"
-    id: ${id_prefix}status_led
+    id: ${id_prefix}light
     icon: "mdi:alarm-light"
     restore_mode: ALWAYS_OFF
     pin: ${status_led_pin}
@@ -186,16 +189,17 @@ switch:
     turn_off_action:
       - output.turn_off: periph_power
 
-  - platform: template
-    name: "WiFi Power"
-    id: wifi_power_switch
-    icon: "mdi:wifi"
-    lambda: |-
-      return id(${id_prefix}wifi_component).is_connected();  // Use the id set in wifi.yaml
-    turn_on_action:
-      - delay: 100ms  
-    turn_off_action:
-      - delay: 100ms
+## only if wifi.yaml is enabled
+  # - platform: template
+    # name: "WiFi Power"
+    # id: wifi_power_switch
+    # icon: "mdi:wifi"
+    # lambda: |-
+      # return id(${id_prefix}wifi_component).is_connected();  // Use the id set in wifi.yaml
+    # turn_on_action:
+      # - delay: 100ms  
+    # turn_off_action:
+      # - delay: 100ms
 
           
           

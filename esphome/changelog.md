@@ -8,4 +8,6 @@
 * board = new AI-On-The-Edge-Cam_Esp32-S3.yaml
 * wifi : change sensor
 * add lan.yaml for poe boards
+## v1.3 : test #https://github.com/esphome/esphome/pull/9496
+* esp32_camera = #https://github.com/esphome/esphome/pull/9496
 
