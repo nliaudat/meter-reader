@@ -22,9 +22,12 @@ esphome:
   project:
     name: "nliaudat.meter-reader"
     version: "${revision}.dev"
-  # platformio_options:
+  platformio_options:
+    board_build.extra_flags: 
+    - -DBOARD_HAS_PSRAM 
+    - -DESP_NN  #use hardware acceleration : https://github.com/espressif/esp-nn (only if using tflite)
     # build_flags: -DBOARD_HAS_PSRAM -DCORE_DEBUG_LEVEL=0
-    # board_build.f_cpu: 240000000L
+    board_build.f_cpu: 240000000L
     # board_build.f_flash: 80000000L
     # board_build.flash_mode: qio
     # board_build.flash_mode: dio
@@ -65,22 +68,22 @@ substitutions:
 esp32:
   board: ${board} 
   # variant: esp32s3 
-  # flash_size: 8MB
+  flash_size: 8MB
   framework:
     type: ${framework} 
     version: recommended
-    # sdkconfig_options:
-      # CONFIG_COMPILER_OPTIMIZATION_SIZE: y
-      # CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
-      # CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
-      # CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
-      # CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
-      # CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY: "y"
-      # CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP: "y"
-      # CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
-      # CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
-      # CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
-      # CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"
+    sdkconfig_options:
+      CONFIG_COMPILER_OPTIMIZATION_SIZE: y
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY: "y"
+      CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP: "y"
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+      CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+      CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"
       ### needed by new jpeg camera : https://github.com/esphome/esphome/pull/9496
       CONFIG_SPIRAM_SUPPORT: y
       CONFIG_SPIRAM_USE_CAPS_ALLOC: y
