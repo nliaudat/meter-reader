@@ -39,7 +39,11 @@ esphome:
     board_build.flash_mode: dio # opi
     board_build.psram_type: opi
     board_upload.maximum_size: 16777216
-    board_build.extra_flags: -DBOARD_HAS_PSRAM
+    board_build.extra_flags: 
+    - -DBOARD_HAS_PSRAM 
+    - -DTF_LITE_STATIC_MEMORY # for tflite micro
+    - -DTF_LITE_DISABLE_X86_NEON #for tflite micro
+    - -DESP_NN  #use hardware acceleration : https://github.com/espressif/esp-nn (only if using tflite)
     board_name: AI-On-The-Edge-Cam Esp32-S3 (N16R8) #https://www.tindie.com/products/allexok/ai-on-the-edge-cam-esp32-s3-with-poe-sd-camera/
 
 
@@ -98,6 +102,10 @@ esp32:
   framework:
     type: ${framework} 
     version: recommended
+    # components:
+      # - name: espressif/esp-tflite-micro
+        # ref: "1.3.3~1"
+        # source: espressif/esp-tflite-micro
     sdkconfig_options:
       CONFIG_COMPILER_OPTIMIZATION_SIZE: y
       CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
