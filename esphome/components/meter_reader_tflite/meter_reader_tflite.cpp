@@ -89,6 +89,26 @@ void MeterReaderTFLite::report_memory_status() {
   }
 }
 
+size_t MeterReaderTFLite::get_arena_used_bytes() const {
+    if (interpreter_ == nullptr) {
+        return 0;
+    }
+    #ifdef TENSORFLOW_LITE_MICRO_VERSION
+        return interpreter_->arena_used_bytes();
+    #else
+        return 0;  // Return 0 if not using a compatible TFLite Micro version
+    #endif
+}
+
+
+size_t MeterReaderTFLite::get_arena_peak_bytes() const {
+  #ifdef TENSORFLOW_LITE_MICRO_VERSION
+    return allocator_.peak_bytes();
+  #else
+    return 0;
+  #endif
+}
+
 /*
 
 bool MeterReaderTFLite::load_model() {

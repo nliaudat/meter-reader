@@ -26,6 +26,9 @@ class MeterReaderTFLite : public Component {
   
   size_t get_actual_arena_size() const { return tensor_arena_ ? tensor_arena_size_actual_ : 0; }
   size_t get_model_size() const { return model_size_; }
+  
+  size_t get_arena_used_bytes() const;
+  size_t get_arena_peak_bytes() const;
 
  protected:
   bool allocate_tensor_arena();
