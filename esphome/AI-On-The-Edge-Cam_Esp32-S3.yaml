@@ -228,7 +228,7 @@ sd_mmc_card:
   cmd_pin: ${sdcard_cmd_pin}  #SD_MOSI
   data0_pin: ${sdcard_d0_pin}  #SD_MISO
   data3_pin: ${sdcard_d3_pin} #SD_CS, CD/DAT3
-  
+
 
     
 ## sample esp32_camera on_image trigger : 

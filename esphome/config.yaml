@@ -201,11 +201,14 @@ api:
   
   
 meter_reader_tflite:
-  model_path: "/sdcard/models/dig-class100-0180-s2-q.tflite"
+  # model_url: "dig-class100-0180-s2-q.tflite" # "https://github.com/nliaudat/meter-reader/blob/dev/models/dig-class100-0180-s2-q.tflite"
+  # model_url: "https://github.com/nliaudat/meter-reader/raw/refs/heads/dev/models/dig-class100-0180-s2-q.tflite"
+  # model_path: "dig-class100-0180-s2-q.tflite"
+  model: "dig-class100-0180-s2-q.tflite"  # Must be in same directory as YAML
   input_width: 96
   input_height: 96
   confidence_threshold: 0.7
-  tensor_arena_size: "800KB"
+  tensor_arena_size: "500KB" #"800KB"
 
 
 packages:
@@ -224,9 +227,6 @@ packages:
     
   wifi: !include wifi.yaml
   # lan: !include lan.yaml # only for AI-On-The-Edge-Cam_Esp32-S3.yaml + wifi must be disabled
-  
-
-
   
   time: !include time.yaml
   switch_others: !include switch_others.yaml
