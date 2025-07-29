@@ -39,7 +39,7 @@ def inspect_tflite_model(model_path, verbose=False, output_file=None):
             for dim in tensor['shape']:
                 num_elements *= dim
             tensor_memory = dtype_size * num_elements
-            total_arena_size += tensor_memory
+            total_arena_size += tensor_memory +16
             if verbose:
                 memory_breakdown.append(
                     f"  Tensor '{tensor.get('name', 'unnamed')}': "
