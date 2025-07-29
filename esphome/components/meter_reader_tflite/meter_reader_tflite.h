@@ -2,10 +2,10 @@
 
 #include "esphome.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
-#include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
+// #include "tensorflow/lite/micro/micro_op_resolver.h" 
 #include "tensorflow/lite/schema/schema_generated.h"
+#include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include <memory>
-#include <vector>
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -28,19 +28,10 @@ class MeterReaderTFLite : public Component {
     model_length_ = length;
   }
 
-  size_t get_actual_arena_size() const { return tensor_arena_ ? tensor_arena_size_actual_ : 0; }
-  size_t get_model_size() const { return model_length_; }
-  
-  size_t get_arena_used_bytes() const;
-  size_t get_arena_peak_bytes() const;
-
  protected:
   bool allocate_tensor_arena();
   bool load_model();
-  bool run_inference();
   void report_memory_status();
-  void preprocess_image(uint8_t* image_data);
-  void process_output(float* output_data);
 
   int input_width_{96};
   int input_height_{96};
