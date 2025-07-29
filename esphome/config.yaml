@@ -32,6 +32,54 @@ external_components:
   # - source: github://mnark/esphome-components
     # components: [sdmmc]
     # refresh: 1h
+    
+
+  # - source: github://espressif/esp-tflite-micro
+    # components: [ "tflite_micro" ]
+    # refresh: always
+
+  # - source: 
+      # type: git
+      # url: https://github.com/espressif/esp-tflite-micro
+    # components: [tflite_micro]
+    # refresh: always
+
+# external_components:    
+  - source:
+      type: local
+      path: components 
+    components: [meter_reader_tflite] #, esp-tflite-micro, esp-nn]
+      
+# esphome:
+    # libraries:
+      # - espressif/esp-tflite-micro
+      # - espressif/esp-nn
+      
+
+    
+# meter_reader_tflite:
+  # model_path: "/sdcard/models/dig-class100-0180-s2-q.tflite"
+  # input_width: 96
+  # input_height: 96
+  # confidence_threshold: 0.7
+
+
+# micro_wake_word:
+  # models:
+    # - model: okay_nabu
+    
+    
+# microphone:
+  # - platform: i2s_audio
+    # id: external_mic
+    # adc_type: external
+    # i2s_din_pin: GPIO35
+    
+# i2s_audio:
+  # i2s_lrclk_pin: GPIO36
+  # i2s_bclk_pin: GPIO37
+  
+  
 
 
 ############## General configuration
@@ -150,6 +198,14 @@ api:
     
 # web_server:
   # port: 80
+  
+  
+meter_reader_tflite:
+  model_path: "/sdcard/models/dig-class100-0180-s2-q.tflite"
+  input_width: 96
+  input_height: 96
+  confidence_threshold: 0.7
+  tensor_arena_size: "800KB"
 
 
 packages:
