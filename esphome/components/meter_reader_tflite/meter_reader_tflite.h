@@ -49,6 +49,7 @@ class MeterReaderTFLite : public Component {
   std::unique_ptr<uint8_t[], HeapCapsDeleter> tensor_arena_;
   std::unique_ptr<tflite::MicroInterpreter> interpreter_;
   const tflite::Model* tflite_model_{nullptr};
+  bool model_loaded_{false};
 };
 
 }  // namespace meter_reader_tflite
