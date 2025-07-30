@@ -63,10 +63,12 @@ bool MeterReaderTFLite::load_model() {
   }
 
   // Create resolver with automatic operation detection.
-  // The number 10 is the max number of different ops. Adjust if your model needs more.
-  static tflite::MicroMutableOpResolver<10> resolver;
+  // Using a larger number to support a wide variety of models.
+  // This can be tuned down for a specific model to save a little RAM.
+  static tflite::MicroMutableOpResolver<90> resolver;
 
   // Get model subgraph and operators
+  ESP_LOGD(TAG, "Parsing model operators...");
   const auto* subgraphs = tflite_model_->subgraphs();
   if (subgraphs->size() != 1) {
     ESP_LOGE(TAG, "Only single subgraph models are supported");
@@ -84,40 +86,225 @@ bool MeterReaderTFLite::load_model() {
     const char* op_name = tflite::EnumNameBuiltinOperator(builtin_code);
     ESP_LOGD(TAG, "Model requires op: %s", op_name);
 
+    TfLiteStatus add_status = kTfLiteError;
     switch (builtin_code) {
+      // Manually ordered for commonality
       case tflite::BuiltinOperator_CONV_2D:
-        resolver.AddConv2D();
+        add_status = resolver.AddConv2D();
         break;
       case tflite::BuiltinOperator_DEPTHWISE_CONV_2D:
-        resolver.AddDepthwiseConv2D();
+        add_status = resolver.AddDepthwiseConv2D();
         break;
       case tflite::BuiltinOperator_FULLY_CONNECTED:
-        resolver.AddFullyConnected();
+        add_status = resolver.AddFullyConnected();
         break;
-      case tflite::BuiltinOperator_SOFTMAX:
-        resolver.AddSoftmax();
+      case tflite::BuiltinOperator_ADD:
+        add_status = resolver.AddAdd();
+        break;
+      case tflite::BuiltinOperator_MUL:
+        add_status = resolver.AddMul();
+        break;
+      case tflite::BuiltinOperator_MAX_POOL_2D:
+        add_status = resolver.AddMaxPool2D();
+        break;
+      case tflite::BuiltinOperator_AVERAGE_POOL_2D:
+        add_status = resolver.AddAveragePool2D();
         break;
       case tflite::BuiltinOperator_RESHAPE:
-        resolver.AddReshape();
+        add_status = resolver.AddReshape();
         break;
       case tflite::BuiltinOperator_QUANTIZE:
-        resolver.AddQuantize();
+        add_status = resolver.AddQuantize();
         break;
       case tflite::BuiltinOperator_DEQUANTIZE:
-        resolver.AddDequantize();
+        add_status = resolver.AddDequantize();
+        break;
+      case tflite::BuiltinOperator_SOFTMAX:
+        add_status = resolver.AddSoftmax();
+        break;
+      case tflite::BuiltinOperator_RELU:
+        add_status = resolver.AddRelu();
+        break;
+      case tflite::BuiltinOperator_RELU6:
+        add_status = resolver.AddRelu6();
+        break;
+      case tflite::BuiltinOperator_LOGISTIC:
+        add_status = resolver.AddLogistic();
+        break;
+      case tflite::BuiltinOperator_SUB:
+        add_status = resolver.AddSub();
+        break;
+      case tflite::BuiltinOperator_CONCATENATION:
+        add_status = resolver.AddConcatenation();
+        break;
+      case tflite::BuiltinOperator_MEAN:
+        add_status = resolver.AddMean();
+        break;
+      case tflite::BuiltinOperator_PAD:
+        add_status = resolver.AddPad();
+        break;
+      case tflite::BuiltinOperator_PADV2:
+        add_status = resolver.AddPadV2();
+        break;
+      case tflite::BuiltinOperator_STRIDED_SLICE:
+        add_status = resolver.AddStridedSlice();
+        break;
+
+      // The rest in alphabetical order for completeness
+      case tflite::BuiltinOperator_ABS:
+        add_status = resolver.AddAbs();
+        break;
+      case tflite::BuiltinOperator_ADD_N:
+        add_status = resolver.AddAddN();
+        break;
+      case tflite::BuiltinOperator_ARG_MAX:
+        add_status = resolver.AddArgMax();
+        break;
+      case tflite::BuiltinOperator_ARG_MIN:
+        add_status = resolver.AddArgMin();
+        break;
+      case tflite::BuiltinOperator_ASSIGN_VARIABLE:
+        add_status = resolver.AddAssignVariable();
+        break;
+      case tflite::BuiltinOperator_BATCH_TO_SPACE_ND:
+        add_status = resolver.AddBatchToSpaceNd();
+        break;
+      case tflite::BuiltinOperator_BROADCAST_ARGS:
+        add_status = resolver.AddBroadcastArgs();
+        break;
+      case tflite::BuiltinOperator_BROADCAST_TO:
+        add_status = resolver.AddBroadcastTo();
+        break;
+      case tflite::BuiltinOperator_CALL_ONCE:
+        add_status = resolver.AddCallOnce();
+        break;
+      case tflite::BuiltinOperator_CAST:
+        add_status = resolver.AddCast();
+        break;
+      case tflite::BuiltinOperator_CEIL:
+        add_status = resolver.AddCeil();
+        break;
+      case tflite::BuiltinOperator_COS:
+        add_status = resolver.AddCos();
+        break;
+      case tflite::BuiltinOperator_CUMSUM:
+        add_status = resolver.AddCumSum();
+        break;
+      case tflite::BuiltinOperator_DEPTH_TO_SPACE:
+        add_status = resolver.AddDepthToSpace();
+        break;
+      case tflite::BuiltinOperator_DIV:
+        add_status = resolver.AddDiv();
+        break;
+      case tflite::BuiltinOperator_ELU:
+        add_status = resolver.AddElu();
+        break;
+      case tflite::BuiltinOperator_EQUAL:
+        add_status = resolver.AddEqual();
+        break;
+      case tflite::BuiltinOperator_EXP:
+        add_status = resolver.AddExp();
+        break;
+      case tflite::BuiltinOperator_EXPAND_DIMS:
+        add_status = resolver.AddExpandDims();
+        break;
+      case tflite::BuiltinOperator_FILL:
+        add_status = resolver.AddFill();
+        break;
+      case tflite::BuiltinOperator_FLOOR:
+        add_status = resolver.AddFloor();
+        break;
+      case tflite::BuiltinOperator_FLOOR_DIV:
+        add_status = resolver.AddFloorDiv();
+        break;
+      case tflite::BuiltinOperator_FLOOR_MOD:
+        add_status = resolver.AddFloorMod();
+        break;
+      case tflite::BuiltinOperator_GATHER:
+        add_status = resolver.AddGather();
+        break;
+      case tflite::BuiltinOperator_GATHER_ND:
+        add_status = resolver.AddGatherNd();
+        break;
+      case tflite::BuiltinOperator_GREATER:
+        add_status = resolver.AddGreater();
+        break;
+      case tflite::BuiltinOperator_GREATER_EQUAL:
+        add_status = resolver.AddGreaterEqual();
+        break;
+      case tflite::BuiltinOperator_HARD_SWISH:
+        add_status = resolver.AddHardSwish();
+        break;
+      case tflite::BuiltinOperator_IF:
+        add_status = resolver.AddIf();
+        break;
+      case tflite::BuiltinOperator_L2_NORMALIZATION:
+        add_status = resolver.AddL2Normalization();
+        break;
+      case tflite::BuiltinOperator_L2_POOL_2D:
+        add_status = resolver.AddL2Pool2D();
+        break;
+      case tflite::BuiltinOperator_LEAKY_RELU:
+        add_status = resolver.AddLeakyRelu();
+        break;
+      case tflite::BuiltinOperator_LESS:
+        add_status = resolver.AddLess();
+        break;
+      case tflite::BuiltinOperator_LESS_EQUAL:
+        add_status = resolver.AddLessEqual();
+        break;
+      case tflite::BuiltinOperator_LOG:
+        add_status = resolver.AddLog();
+        break;
+      case tflite::BuiltinOperator_LOGICAL_AND:
+        add_status = resolver.AddLogicalAnd();
+        break;
+      case tflite::BuiltinOperator_LOGICAL_NOT:
+        add_status = resolver.AddLogicalNot();
+        break;
+      case tflite::BuiltinOperator_LOGICAL_OR:
+        add_status = resolver.AddLogicalOr();
+        break;
+      case tflite::BuiltinOperator_LOG_SOFTMAX:
+        add_status = resolver.AddLogSoftmax();
+        break;
+      case tflite::BuiltinOperator_MAXIMUM:
+        add_status = resolver.AddMaximum();
+        break;
+      case tflite::BuiltinOperator_MINIMUM:
+        add_status = resolver.AddMinimum();
+        break;
+      case tflite::BuiltinOperator_MIRROR_PAD:
+        add_status = resolver.AddMirrorPad();
+        break;
+      case tflite::BuiltinOperator_NEG:
+        add_status = resolver.AddNeg();
+        break;
+      case tflite::BuiltinOperator_NOT_EQUAL:
+        add_status = resolver.AddNotEqual();
+        break;
+      case tflite::BuiltinOperator_PACK:
         break;
       default:
         ESP_LOGE(TAG, "Unsupported operator: %s (%d)", op_name, builtin_code);
         return false;
     }
+
+    if (add_status != kTfLiteOk) {
+      ESP_LOGE(TAG, "Failed to add operator %s to resolver. "
+                    "This may be because the MicroMutableOpResolver's template size is too small.", op_name);
+      return false;
+    }
   }
 
+  ESP_LOGD(TAG, "Creating interpreter...");
   interpreter_ = std::make_unique<tflite::MicroInterpreter>(
       tflite_model_,
       resolver,
       tensor_arena_.get(),
       tensor_arena_size_actual_);
 
+  ESP_LOGD(TAG, "Allocating tensors...");
   if (interpreter_->AllocateTensors() != kTfLiteOk) {
     // The error reporter will have already logged the detailed reason.
     ESP_LOGE(TAG, "Failed to allocate tensors. Check logs for details from tflite_micro.");
