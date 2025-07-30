@@ -23,6 +23,14 @@ static void hexdump_tensor(const char *tag, const TfLiteTensor *tensor) {
 
 void MeterReaderTFLite::setup() {
   ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
+
+  // Log PSRAM status, as it's crucial for large tensor arenas
+  if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0) {
+    ESP_LOGI(TAG, "PSRAM is available.");
+  } else {
+    ESP_LOGW(TAG, "PSRAM not available. Large tensor arenas may fail to allocate from internal RAM.");
+  }
+
   if (!load_model()) {
     mark_failed();
     return;
@@ -127,16 +135,27 @@ bool MeterReaderTFLite::allocate_tensor_arena() {
   #else
   ESP_LOGW(TAG, "ESP-NN not enabled - using default kernels");
   #endif
-  
-  // Try requested size first
+
   tensor_arena_size_actual_ = tensor_arena_size_requested_;
-  tensor_arena_ = std::make_unique<uint8_t[]>(tensor_arena_size_actual_);
-  
-  if (!tensor_arena_) {
-    ESP_LOGE(TAG, "Failed to allocate tensor arena");
+
+  // Allocate from PSRAM if available, otherwise fall back to internal RAM.
+  // Using heap_caps_malloc is more robust for large allocations on ESP32.
+  uint8_t *arena_ptr = (uint8_t *) heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
+  if (arena_ptr == nullptr) {
+    ESP_LOGW(TAG, "Could not allocate tensor arena from PSRAM, trying internal RAM.");
+    arena_ptr = (uint8_t *) heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+
+  if (arena_ptr == nullptr) {
+    ESP_LOGE(TAG, "Failed to allocate tensor arena from both PSRAM and internal RAM. "
+                  "Try reducing tensor_arena_size.");
     return false;
   }
-  
+
+  // Use reset() to assign the raw pointer to the unique_ptr with the custom deleter.
+  tensor_arena_.reset(arena_ptr);
+
   return true;
 }
 

@@ -42,7 +42,11 @@ class MeterReaderTFLite : public Component {
   const uint8_t *model_{nullptr};
   size_t model_length_{0};
   
-  std::unique_ptr<uint8_t[]> tensor_arena_;
+  // Custom deleter for memory allocated with malloc/heap_caps_malloc
+  struct HeapCapsDeleter {
+    void operator()(uint8_t *p) const { free(p); }
+  };
+  std::unique_ptr<uint8_t[], HeapCapsDeleter> tensor_arena_;
   std::unique_ptr<tflite::MicroInterpreter> interpreter_;
   const tflite::Model* tflite_model_{nullptr};
 };
