@@ -4,6 +4,7 @@
 #include <cstdarg> // for va_list
 #include <cstdio>  // for vsnprintf
 #include <cstring> // for strchr, strlen
+#include <set>     // for std::set
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -23,6 +24,28 @@ static void hexdump_tensor(const char *tag, const TfLiteTensor *tensor) {
 
 void MeterReaderTFLite::setup() {
   ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
+  // Add a delay to allow other components (like the logger and camera) to initialize
+  // before we attempt the resource-intensive model loading. This can prevent
+  // crashes on startup.
+  this->set_timeout(1000, [this]() {
+    if (!this->load_model()) {
+      ESP_LOGE(TAG, "Failed to load model. Marking component as failed.");
+      this->mark_failed();
+      return;
+    }
+    this->model_loaded_ = true;
+    ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
+  });
+}
+
+bool MeterReaderTFLite::load_model() {
+  ESP_LOGD(TAG, "load_model: start");
+  if (model_ == nullptr || model_length_ == 0) {
+    ESP_LOGE(TAG, "No model data available");
+    return false;
+  }
+
+  ESP_LOGI(TAG, "Loading model (%zu bytes)", model_length_);
 
   // Log PSRAM status, as it's crucial for large tensor arenas
   if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0) {
@@ -31,42 +54,31 @@ void MeterReaderTFLite::setup() {
     ESP_LOGW(TAG, "PSRAM not available. Large tensor arenas may fail to allocate from internal RAM.");
   }
 
-  if (!load_model()) {
-    mark_failed();
-    return;
-  }
-
-  ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
-}
-
-bool MeterReaderTFLite::load_model() {
-  if (model_ == nullptr || model_length_ == 0) {
-    ESP_LOGE(TAG, "No model data available");
-    return false;
-  }
-
-  ESP_LOGI(TAG, "Loading model (%zu bytes)", model_length_);
-
+  ESP_LOGD(TAG, "load_model: calling GetModel()");
   tflite_model_ = tflite::GetModel(model_);
   if (tflite_model_ == nullptr) {
     ESP_LOGE(TAG, "Failed to get model from buffer. The model data may be corrupt or invalid.");
     return false;
   }
 
+  ESP_LOGD(TAG, "load_model: checking schema version");
   if (tflite_model_->version() != TFLITE_SCHEMA_VERSION) {
     ESP_LOGE(TAG, "Model schema version mismatch");
     return false;
   }
 
+  ESP_LOGD(TAG, "load_model: allocating tensor arena");
   if (!allocate_tensor_arena()) {
     return false;
   }
 
+  ESP_LOGD(TAG, "load_model: creating op resolver");
   // Create resolver with automatic operation detection.
   // Using a larger number to support a wide variety of models.
   // This can be tuned down for a specific model to save a little RAM.
   static tflite::MicroMutableOpResolver<90> resolver;
 
+  ESP_LOGD(TAG, "load_model: parsing operators");
   // Get model subgraph and operators
   ESP_LOGD(TAG, "Parsing model operators...");
   const auto* subgraphs = tflite_model_->subgraphs();
@@ -78,12 +90,19 @@ bool MeterReaderTFLite::load_model() {
   const auto* ops = (*subgraphs)[0]->operators();
   const auto* opcodes = tflite_model_->operator_codes();
 
+  std::set<int> added_ops;
+
   // Add required operations to the resolver
   for (size_t i = 0; i < ops->size(); i++) {
     const auto* op = (*ops)[i];
     const auto* opcode = (*opcodes)[op->opcode_index()];
     const auto builtin_code = opcode->builtin_code();
-    const char* op_name = tflite::EnumNameBuiltinOperator(builtin_code);
+
+    if (added_ops.count(builtin_code)) {
+      continue;  // Operator already added, skip.
+    }
+
+    const char *op_name = tflite::EnumNameBuiltinOperator(builtin_code);
     ESP_LOGD(TAG, "Model requires op: %s", op_name);
 
     TfLiteStatus add_status = kTfLiteError;
@@ -284,6 +303,16 @@ bool MeterReaderTFLite::load_model() {
         add_status = resolver.AddNotEqual();
         break;
       case tflite::BuiltinOperator_PACK:
+        add_status = resolver.AddPack();
+        break;
+      case tflite::BuiltinOperator_READ_VARIABLE:
+        add_status = resolver.AddReadVariable();
+        break;
+      case tflite::BuiltinOperator_SPLIT_V:
+        add_status = resolver.AddSplitV();
+        break;
+      case tflite::BuiltinOperator_VAR_HANDLE:
+        add_status = resolver.AddVarHandle();
         break;
       default:
         ESP_LOGE(TAG, "Unsupported operator: %s (%d)", op_name, builtin_code);
@@ -295,8 +324,11 @@ bool MeterReaderTFLite::load_model() {
                     "This may be because the MicroMutableOpResolver's template size is too small.", op_name);
       return false;
     }
+    // Mark this operator as added so we don't try to add it again.
+    added_ops.insert(builtin_code);
   }
 
+  ESP_LOGD(TAG, "load_model: creating interpreter");
   ESP_LOGD(TAG, "Creating interpreter...");
   interpreter_ = std::make_unique<tflite::MicroInterpreter>(
       tflite_model_,
@@ -304,6 +336,7 @@ bool MeterReaderTFLite::load_model() {
       tensor_arena_.get(),
       tensor_arena_size_actual_);
 
+  ESP_LOGD(TAG, "load_model: allocating tensors");
   ESP_LOGD(TAG, "Allocating tensors...");
   if (interpreter_->AllocateTensors() != kTfLiteOk) {
     // The error reporter will have already logged the detailed reason.
@@ -311,6 +344,7 @@ bool MeterReaderTFLite::load_model() {
     return false;
   }
 
+  ESP_LOGD(TAG, "load_model: success");
   ESP_LOGI(TAG, "Model loaded successfully");
   report_memory_status();
   return true;
@@ -362,7 +396,7 @@ void MeterReaderTFLite::report_memory_status() {
 }
 
 void MeterReaderTFLite::loop() {
-  // Your inference logic here
+  // Inference logic will go here
 }
 
 }  // namespace meter_reader_tflite
