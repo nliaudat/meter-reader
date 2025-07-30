@@ -1,15 +1,28 @@
 #include "meter_reader_tflite.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include <cstdarg> // for va_list
+#include <cstdio>  // for vsnprintf
+#include <cstring> // for strchr, strlen
 
 namespace esphome {
 namespace meter_reader_tflite {
 
 static const char *const TAG = "meter_reader_tflite";
 
+// Helper function to dump tensor contents for debugging.
+static void hexdump_tensor(const char *tag, const TfLiteTensor *tensor) {
+  if (tensor == nullptr) {
+    ESP_LOGW(tag, "Attempted to hexdump a null tensor.");
+    return;
+  }
+  // The 'name' field is removed in newer TFLite versions.
+  ESP_LOGD(tag, "Hexdump of tensor (%zu bytes, type %d):", tensor->bytes, tensor->type);
+  ESP_LOG_BUFFER_HEXDUMP(tag, tensor->data.data, tensor->bytes, ESP_LOG_DEBUG);
+}
+
 void MeterReaderTFLite::setup() {
   ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
-  
   if (!load_model()) {
     mark_failed();
     return;
@@ -25,8 +38,13 @@ bool MeterReaderTFLite::load_model() {
   }
 
   ESP_LOGI(TAG, "Loading model (%zu bytes)", model_length_);
-  
+
   tflite_model_ = tflite::GetModel(model_);
+  if (tflite_model_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to get model from buffer. The model data may be corrupt or invalid.");
+    return false;
+  }
+
   if (tflite_model_->version() != TFLITE_SCHEMA_VERSION) {
     ESP_LOGE(TAG, "Model schema version mismatch");
     return false;
@@ -36,25 +54,28 @@ bool MeterReaderTFLite::load_model() {
     return false;
   }
 
-  // Create resolver with automatic operation detection
-  static tflite::MicroMutableOpResolver<10> resolver; // Adjust size based on your model's ops
-  
+  // Create resolver with automatic operation detection.
+  // The number 10 is the max number of different ops. Adjust if your model needs more.
+  static tflite::MicroMutableOpResolver<10> resolver;
+
   // Get model subgraph and operators
   const auto* subgraphs = tflite_model_->subgraphs();
   if (subgraphs->size() != 1) {
     ESP_LOGE(TAG, "Only single subgraph models are supported");
     return false;
   }
-  
+
   const auto* ops = (*subgraphs)[0]->operators();
   const auto* opcodes = tflite_model_->operator_codes();
-  
+
   // Add required operations to the resolver
   for (size_t i = 0; i < ops->size(); i++) {
     const auto* op = (*ops)[i];
     const auto* opcode = (*opcodes)[op->opcode_index()];
     const auto builtin_code = opcode->builtin_code();
-    
+    const char* op_name = tflite::EnumNameBuiltinOperator(builtin_code);
+    ESP_LOGD(TAG, "Model requires op: %s", op_name);
+
     switch (builtin_code) {
       case tflite::BuiltinOperator_CONV_2D:
         resolver.AddConv2D();
@@ -78,7 +99,7 @@ bool MeterReaderTFLite::load_model() {
         resolver.AddDequantize();
         break;
       default:
-        ESP_LOGE(TAG, "Unsupported operator: %d", builtin_code);
+        ESP_LOGE(TAG, "Unsupported operator: %s (%d)", op_name, builtin_code);
         return false;
     }
   }
@@ -90,7 +111,8 @@ bool MeterReaderTFLite::load_model() {
       tensor_arena_size_actual_);
 
   if (interpreter_->AllocateTensors() != kTfLiteOk) {
-    ESP_LOGE(TAG, "Failed to allocate tensors");
+    // The error reporter will have already logged the detailed reason.
+    ESP_LOGE(TAG, "Failed to allocate tensors. Check logs for details from tflite_micro.");
     return false;
   }
 
