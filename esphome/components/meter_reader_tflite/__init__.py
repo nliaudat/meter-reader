@@ -2,7 +2,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 import os
-from esphome.const import CONF_ID
+from esphome.const import CONF_ID, CONF_MODEL
 from esphome.core import CORE, HexInt
 from esphome.components import esp32
 
@@ -11,7 +11,6 @@ DEPENDENCIES = ['esp32']
 AUTO_LOAD = []
 
 CONF_TENSOR_ARENA_SIZE = 'tensor_arena_size'
-CONF_MODEL = 'model'
 CONF_INPUT_WIDTH = 'input_width'
 CONF_INPUT_HEIGHT = 'input_height'
 CONF_CONFIDENCE_THRESHOLD = 'confidence_threshold'
@@ -65,7 +64,7 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     
-    model_path = os.path.join(CORE.config_dir, config[CONF_MODEL])
+    model_path = config[CONF_MODEL]
     
     # Read the model file as binary data
     with open(model_path, "rb") as f:
