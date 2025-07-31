@@ -1,10 +1,12 @@
+"""Component to use TensorFlow Lite Micro to read a meter."""
 import esphome.codegen as cg
 import esphome.config_validation as cv
 import os
 from esphome.const import CONF_ID
 from esphome.core import CORE, HexInt
-from esphome.components import esp32 
+from esphome.components import esp32
 
+CODEOWNERS = ["@nl"]
 DEPENDENCIES = ['esp32']
 AUTO_LOAD = []
 
@@ -18,39 +20,38 @@ CONF_RAW_DATA_ID = 'raw_data_id'
 meter_reader_tflite_ns = cg.esphome_ns.namespace('meter_reader_tflite')
 MeterReaderTFLite = meter_reader_tflite_ns.class_('MeterReaderTFLite', cg.Component)
 
-def validate_tensor_arena(value):
-    if isinstance(value, str):
-        try:
-            if value.endswith('KB'):
-                value = int(float(value[:-2]) * 1024)
-            elif value.endswith('MB'):
-                value = int(float(value[:-2]) * 1024 * 1024)
-            else:
-                value = int(value)
-        except ValueError as e:
-            raise cv.Invalid(f"Invalid tensor arena size: {str(e)}")
-    
-    value = int(value)
-    if value < 400 * 1024:
-        raise cv.Invalid("Tensor arena must be at least 400KB")
-    if value > 800 * 1024:
-        raise cv.Invalid("Maximum tensor arena size is 800KB")
-    return value
+
+def datasize_to_bytes(value):
+    """Parse a data size string with units like KB, MB to bytes."""
+    try:
+        value = str(value).upper().strip()
+        if value.endswith('KB'):
+            return int(float(value[:-2]) * 1024)
+        if value.endswith('MB'):
+            return int(float(value[:-2]) * 1024 * 1024)
+        if value.endswith('B'):
+            return int(value[:-1])
+        return int(value)
+    except ValueError as e:
+        raise cv.Invalid(f"Invalid data size: {e}") from e
 
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(MeterReaderTFLite),
     cv.Required(CONF_MODEL): cv.file_,
-    cv.Optional(CONF_INPUT_WIDTH, default=96): cv.int_,
-    cv.Optional(CONF_INPUT_HEIGHT, default=96): cv.int_,
-    cv.Optional(CONF_CONFIDENCE_THRESHOLD, default=0.7): cv.float_,
+    cv.Optional(CONF_INPUT_WIDTH, default=96): cv.positive_int,
+    cv.Optional(CONF_INPUT_HEIGHT, default=96): cv.positive_int,
+    cv.Optional(CONF_CONFIDENCE_THRESHOLD, default=0.7): cv.float_range(
+        min=0.0, max=1.0
+    ),
     cv.Optional(CONF_TENSOR_ARENA_SIZE, default='800KB'): cv.All(
-        cv.string,
-        validate_tensor_arena
+        datasize_to_bytes,
+        cv.Range(min=400 * 1024, max=800 * 1024)
     ),
     cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
 }).extend(cv.COMPONENT_SCHEMA)
 
 async def to_code(config):
+    """Code generation for the component."""
     # Add IDF component and build flags
     esp32.add_idf_component(
         name="espressif/esp-tflite-micro",
@@ -78,5 +79,5 @@ async def to_code(config):
     cg.add(var.set_input_size(config[CONF_INPUT_WIDTH], config[CONF_INPUT_HEIGHT]))
     cg.add(var.set_confidence_threshold(config[CONF_CONFIDENCE_THRESHOLD]))
     
-    arena_size = validate_tensor_arena(config[CONF_TENSOR_ARENA_SIZE])
-    cg.add(var.set_tensor_arena_size(arena_size))
+    # The config value is already an integer thanks to the schema validator
+    cg.add(var.set_tensor_arena_size(config[CONF_TENSOR_ARENA_SIZE]))
