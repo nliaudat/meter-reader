@@ -1,10 +1,7 @@
 #include "meter_reader_tflite.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#include <cstdarg> // for va_list
-#include <cstdio>  // for vsnprintf
-#include <cstring> // for strchr, strlen
-#include <set>     // for std::set
+#include <set>
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -37,6 +34,7 @@ void MeterReaderTFLite::setup() {
     ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
   });
 }
+
 
 bool MeterReaderTFLite::load_model() {
   ESP_LOGD(TAG, "load_model: start");
@@ -74,9 +72,8 @@ bool MeterReaderTFLite::load_model() {
 
   ESP_LOGD(TAG, "load_model: creating op resolver");
   // Create resolver with automatic operation detection.
-  // Using a larger number to support a wide variety of models.
-  // This can be tuned down for a specific model to save a little RAM.
-  static tflite::MicroMutableOpResolver<90> resolver;
+  // Changed from 90 to 128 to match the OpResolverManager
+  static tflite::MicroMutableOpResolver<128> resolver;
 
   ESP_LOGD(TAG, "load_model: parsing operators");
   // Get model subgraph and operators
@@ -87,249 +84,21 @@ bool MeterReaderTFLite::load_model() {
     return false;
   }
 
-  const auto* ops = (*subgraphs)[0]->operators();
-  const auto* opcodes = tflite_model_->operator_codes();
+  // First collect all required ops from operator codes
+  std::set<tflite::BuiltinOperator> required_ops;
+  for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
+    const auto* op_code = tflite_model_->operator_codes()->Get(i);
+    auto builtin_code = op_code->builtin_code();
+    required_ops.insert(builtin_code);
+  }
 
-  std::set<int> added_ops;
-
-  // Add required operations to the resolver
-  for (size_t i = 0; i < ops->size(); i++) {
-    const auto* op = (*ops)[i];
-    const auto* opcode = (*opcodes)[op->opcode_index()];
-    const auto builtin_code = opcode->builtin_code();
-
-    if (added_ops.count(builtin_code)) {
-      continue;  // Operator already added, skip.
-    }
-
-    const char *op_name = tflite::EnumNameBuiltinOperator(builtin_code);
-    ESP_LOGD(TAG, "Model requires op: %s", op_name);
-
-    TfLiteStatus add_status = kTfLiteError;
-    switch (builtin_code) {
-      // Manually ordered for commonality
-      case tflite::BuiltinOperator_CONV_2D:
-        add_status = resolver.AddConv2D();
-        break;
-      case tflite::BuiltinOperator_DEPTHWISE_CONV_2D:
-        add_status = resolver.AddDepthwiseConv2D();
-        break;
-      case tflite::BuiltinOperator_FULLY_CONNECTED:
-        add_status = resolver.AddFullyConnected();
-        break;
-      case tflite::BuiltinOperator_ADD:
-        add_status = resolver.AddAdd();
-        break;
-      case tflite::BuiltinOperator_MUL:
-        add_status = resolver.AddMul();
-        break;
-      case tflite::BuiltinOperator_MAX_POOL_2D:
-        add_status = resolver.AddMaxPool2D();
-        break;
-      case tflite::BuiltinOperator_AVERAGE_POOL_2D:
-        add_status = resolver.AddAveragePool2D();
-        break;
-      case tflite::BuiltinOperator_RESHAPE:
-        add_status = resolver.AddReshape();
-        break;
-      case tflite::BuiltinOperator_QUANTIZE:
-        add_status = resolver.AddQuantize();
-        break;
-      case tflite::BuiltinOperator_DEQUANTIZE:
-        add_status = resolver.AddDequantize();
-        break;
-      case tflite::BuiltinOperator_SOFTMAX:
-        add_status = resolver.AddSoftmax();
-        break;
-      case tflite::BuiltinOperator_RELU:
-        add_status = resolver.AddRelu();
-        break;
-      case tflite::BuiltinOperator_RELU6:
-        add_status = resolver.AddRelu6();
-        break;
-      case tflite::BuiltinOperator_LOGISTIC:
-        add_status = resolver.AddLogistic();
-        break;
-      case tflite::BuiltinOperator_SUB:
-        add_status = resolver.AddSub();
-        break;
-      case tflite::BuiltinOperator_CONCATENATION:
-        add_status = resolver.AddConcatenation();
-        break;
-      case tflite::BuiltinOperator_MEAN:
-        add_status = resolver.AddMean();
-        break;
-      case tflite::BuiltinOperator_PAD:
-        add_status = resolver.AddPad();
-        break;
-      case tflite::BuiltinOperator_PADV2:
-        add_status = resolver.AddPadV2();
-        break;
-      case tflite::BuiltinOperator_STRIDED_SLICE:
-        add_status = resolver.AddStridedSlice();
-        break;
-
-      // The rest in alphabetical order for completeness
-      case tflite::BuiltinOperator_ABS:
-        add_status = resolver.AddAbs();
-        break;
-      case tflite::BuiltinOperator_ADD_N:
-        add_status = resolver.AddAddN();
-        break;
-      case tflite::BuiltinOperator_ARG_MAX:
-        add_status = resolver.AddArgMax();
-        break;
-      case tflite::BuiltinOperator_ARG_MIN:
-        add_status = resolver.AddArgMin();
-        break;
-      case tflite::BuiltinOperator_ASSIGN_VARIABLE:
-        add_status = resolver.AddAssignVariable();
-        break;
-      case tflite::BuiltinOperator_BATCH_TO_SPACE_ND:
-        add_status = resolver.AddBatchToSpaceNd();
-        break;
-      case tflite::BuiltinOperator_BROADCAST_ARGS:
-        add_status = resolver.AddBroadcastArgs();
-        break;
-      case tflite::BuiltinOperator_BROADCAST_TO:
-        add_status = resolver.AddBroadcastTo();
-        break;
-      case tflite::BuiltinOperator_CALL_ONCE:
-        add_status = resolver.AddCallOnce();
-        break;
-      case tflite::BuiltinOperator_CAST:
-        add_status = resolver.AddCast();
-        break;
-      case tflite::BuiltinOperator_CEIL:
-        add_status = resolver.AddCeil();
-        break;
-      case tflite::BuiltinOperator_COS:
-        add_status = resolver.AddCos();
-        break;
-      case tflite::BuiltinOperator_CUMSUM:
-        add_status = resolver.AddCumSum();
-        break;
-      case tflite::BuiltinOperator_DEPTH_TO_SPACE:
-        add_status = resolver.AddDepthToSpace();
-        break;
-      case tflite::BuiltinOperator_DIV:
-        add_status = resolver.AddDiv();
-        break;
-      case tflite::BuiltinOperator_ELU:
-        add_status = resolver.AddElu();
-        break;
-      case tflite::BuiltinOperator_EQUAL:
-        add_status = resolver.AddEqual();
-        break;
-      case tflite::BuiltinOperator_EXP:
-        add_status = resolver.AddExp();
-        break;
-      case tflite::BuiltinOperator_EXPAND_DIMS:
-        add_status = resolver.AddExpandDims();
-        break;
-      case tflite::BuiltinOperator_FILL:
-        add_status = resolver.AddFill();
-        break;
-      case tflite::BuiltinOperator_FLOOR:
-        add_status = resolver.AddFloor();
-        break;
-      case tflite::BuiltinOperator_FLOOR_DIV:
-        add_status = resolver.AddFloorDiv();
-        break;
-      case tflite::BuiltinOperator_FLOOR_MOD:
-        add_status = resolver.AddFloorMod();
-        break;
-      case tflite::BuiltinOperator_GATHER:
-        add_status = resolver.AddGather();
-        break;
-      case tflite::BuiltinOperator_GATHER_ND:
-        add_status = resolver.AddGatherNd();
-        break;
-      case tflite::BuiltinOperator_GREATER:
-        add_status = resolver.AddGreater();
-        break;
-      case tflite::BuiltinOperator_GREATER_EQUAL:
-        add_status = resolver.AddGreaterEqual();
-        break;
-      case tflite::BuiltinOperator_HARD_SWISH:
-        add_status = resolver.AddHardSwish();
-        break;
-      case tflite::BuiltinOperator_IF:
-        add_status = resolver.AddIf();
-        break;
-      case tflite::BuiltinOperator_L2_NORMALIZATION:
-        add_status = resolver.AddL2Normalization();
-        break;
-      case tflite::BuiltinOperator_L2_POOL_2D:
-        add_status = resolver.AddL2Pool2D();
-        break;
-      case tflite::BuiltinOperator_LEAKY_RELU:
-        add_status = resolver.AddLeakyRelu();
-        break;
-      case tflite::BuiltinOperator_LESS:
-        add_status = resolver.AddLess();
-        break;
-      case tflite::BuiltinOperator_LESS_EQUAL:
-        add_status = resolver.AddLessEqual();
-        break;
-      case tflite::BuiltinOperator_LOG:
-        add_status = resolver.AddLog();
-        break;
-      case tflite::BuiltinOperator_LOGICAL_AND:
-        add_status = resolver.AddLogicalAnd();
-        break;
-      case tflite::BuiltinOperator_LOGICAL_NOT:
-        add_status = resolver.AddLogicalNot();
-        break;
-      case tflite::BuiltinOperator_LOGICAL_OR:
-        add_status = resolver.AddLogicalOr();
-        break;
-      case tflite::BuiltinOperator_LOG_SOFTMAX:
-        add_status = resolver.AddLogSoftmax();
-        break;
-      case tflite::BuiltinOperator_MAXIMUM:
-        add_status = resolver.AddMaximum();
-        break;
-      case tflite::BuiltinOperator_MINIMUM:
-        add_status = resolver.AddMinimum();
-        break;
-      case tflite::BuiltinOperator_MIRROR_PAD:
-        add_status = resolver.AddMirrorPad();
-        break;
-      case tflite::BuiltinOperator_NEG:
-        add_status = resolver.AddNeg();
-        break;
-      case tflite::BuiltinOperator_NOT_EQUAL:
-        add_status = resolver.AddNotEqual();
-        break;
-      case tflite::BuiltinOperator_PACK:
-        add_status = resolver.AddPack();
-        break;
-      case tflite::BuiltinOperator_READ_VARIABLE:
-        add_status = resolver.AddReadVariable();
-        break;
-      case tflite::BuiltinOperator_SPLIT_V:
-        add_status = resolver.AddSplitV();
-        break;
-      case tflite::BuiltinOperator_VAR_HANDLE:
-        add_status = resolver.AddVarHandle();
-        break;
-      default:
-        ESP_LOGE(TAG, "Unsupported operator: %s (%d)", op_name, builtin_code);
-        return false;
-    }
-
-    if (add_status != kTfLiteOk) {
-      ESP_LOGE(TAG, "Failed to add operator %s to resolver. "
-                    "This may be because the MicroMutableOpResolver's template size is too small.", op_name);
-      return false;
-    }
-    // Mark this operator as added so we don't try to add it again.
-    added_ops.insert(builtin_code);
+  // Register all required ops at once
+  if (!meter_reader_tflite::OpResolverManager::RegisterOps(resolver, required_ops, TAG)) {
+    ESP_LOGE(TAG, "Failed to register all required operators");
+    return false;
   }
 
   ESP_LOGD(TAG, "load_model: creating interpreter");
-  ESP_LOGD(TAG, "Creating interpreter...");
   interpreter_ = std::make_unique<tflite::MicroInterpreter>(
       tflite_model_,
       resolver,
@@ -337,9 +106,7 @@ bool MeterReaderTFLite::load_model() {
       tensor_arena_size_actual_);
 
   ESP_LOGD(TAG, "load_model: allocating tensors");
-  ESP_LOGD(TAG, "Allocating tensors...");
   if (interpreter_->AllocateTensors() != kTfLiteOk) {
-    // The error reporter will have already logged the detailed reason.
     ESP_LOGE(TAG, "Failed to allocate tensors. Check logs for details from tflite_micro.");
     return false;
   }
@@ -349,6 +116,8 @@ bool MeterReaderTFLite::load_model() {
   report_memory_status();
   return true;
 }
+
+
 
 bool MeterReaderTFLite::allocate_tensor_arena() {
   #ifdef ESP_NN
@@ -361,12 +130,10 @@ bool MeterReaderTFLite::allocate_tensor_arena() {
 
   // Allocate from PSRAM if available, otherwise fall back to internal RAM.
   // Using heap_caps_malloc is more robust for large allocations on ESP32.
-  // uint8_t *arena_ptr = (uint8_t *) heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   uint8_t *arena_ptr = static_cast<uint8_t *>(heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
 
   if (arena_ptr == nullptr) {
     ESP_LOGW(TAG, "Could not allocate tensor arena from PSRAM, trying internal RAM.");
-    //arena_ptr = (uint8_t *) heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     arena_ptr = static_cast<uint8_t *>(heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   }
 
