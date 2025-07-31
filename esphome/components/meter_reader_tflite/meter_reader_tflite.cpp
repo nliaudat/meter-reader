@@ -7,6 +7,7 @@ namespace esphome {
 namespace meter_reader_tflite {
 
 static const char *const TAG = "meter_reader_tflite";
+constexpr size_t MAX_OPERATORS = 128;  // Define a constant for clarity and easy modification
 
 // Helper function to dump tensor contents for debugging.
 static void hexdump_tensor(const char *tag, const TfLiteTensor *tensor) {
@@ -72,8 +73,7 @@ bool MeterReaderTFLite::load_model() {
 
   ESP_LOGD(TAG, "load_model: creating op resolver");
   // Create resolver with automatic operation detection.
-  // Changed from 90 to 128 to match the OpResolverManager
-  static tflite::MicroMutableOpResolver<128> resolver;
+  static tflite::MicroMutableOpResolver<MAX_OPERATORS> resolver;
 
   ESP_LOGD(TAG, "load_model: parsing operators");
   // Get model subgraph and operators

@@ -4,6 +4,7 @@
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
+#include "esp_heap_caps.h"
 #include "op_resolver.h"
 #include <memory>
 
@@ -45,7 +46,7 @@ class MeterReaderTFLite : public Component {
   
   // Custom deleter for memory allocated with malloc/heap_caps_malloc
   struct HeapCapsDeleter {
-    void operator()(uint8_t *p) const { free(p); }
+    void operator()(uint8_t *p) const { heap_caps_free(p); }
   };
   std::unique_ptr<uint8_t[], HeapCapsDeleter> tensor_arena_;
   std::unique_ptr<tflite::MicroInterpreter> interpreter_;

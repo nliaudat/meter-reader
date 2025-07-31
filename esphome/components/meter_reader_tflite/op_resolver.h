@@ -10,9 +10,10 @@ namespace meter_reader_tflite {
 
 class OpResolverManager {
  public:
-  static bool RegisterOps(tflite::MicroMutableOpResolver<128>& resolver,
-                         const std::set<tflite::BuiltinOperator>& required_ops,
-                         const char* tag) {
+  template <size_t tOpCount>
+  static bool RegisterOps(tflite::MicroMutableOpResolver<tOpCount> &resolver,
+                          const std::set<tflite::BuiltinOperator> &required_ops,
+                          const char *tag) {
     for (auto op : required_ops) {
       const char* op_name = tflite::EnumNameBuiltinOperator(op);
       ESP_LOGD(tag, "Registering op: %s", op_name);
