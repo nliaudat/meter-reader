@@ -361,11 +361,13 @@ bool MeterReaderTFLite::allocate_tensor_arena() {
 
   // Allocate from PSRAM if available, otherwise fall back to internal RAM.
   // Using heap_caps_malloc is more robust for large allocations on ESP32.
-  uint8_t *arena_ptr = (uint8_t *) heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  // uint8_t *arena_ptr = (uint8_t *) heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  uint8_t *arena_ptr = static_cast<uint8_t *>(heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
 
   if (arena_ptr == nullptr) {
     ESP_LOGW(TAG, "Could not allocate tensor arena from PSRAM, trying internal RAM.");
-    arena_ptr = (uint8_t *) heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    //arena_ptr = (uint8_t *) heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    arena_ptr = static_cast<uint8_t *>(heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   }
 
   if (arena_ptr == nullptr) {
@@ -380,14 +382,29 @@ bool MeterReaderTFLite::allocate_tensor_arena() {
   return true;
 }
 
+size_t MeterReaderTFLite::get_arena_peak_bytes() const {
+  // arena_used_bytes() returns the peak memory usage of the arena after tensor allocation.
+  return interpreter_ ? interpreter_->arena_used_bytes() : 0;
+}
+
 void MeterReaderTFLite::report_memory_status() {
-  size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  size_t free_internal_heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  size_t peak_bytes = this->get_arena_peak_bytes();
   ESP_LOGI(TAG, "Memory Status:");
   ESP_LOGI(TAG, "  Requested Arena: %zuB (%.1fKB)", 
           tensor_arena_size_requested_, tensor_arena_size_requested_/1024.0f);
   ESP_LOGI(TAG, "  Allocated Arena: %zuB (%.1fKB)", 
           tensor_arena_size_actual_, tensor_arena_size_actual_/1024.0f);
-  ESP_LOGI(TAG, "  Free Heap: %zuB (%.1fKB)", free_heap, free_heap/1024.0f);
+  ESP_LOGI(TAG, "  Arena Peak Usage (arena_used_bytes): %zuB (%.1fKB) <-- Use this to tune 'tensor_arena_size'", 
+          peak_bytes, peak_bytes/1024.0f);
+
+  size_t total_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+  if (total_psram > 0) {
+    size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    ESP_LOGI(TAG, "  PSRAM Status: %zuB free of %zuB total (%.1fKB / %.1fKB)",
+             free_psram, total_psram, free_psram / 1024.0f, total_psram / 1024.0f);
+  }
+  ESP_LOGI(TAG, "  Free Internal Heap: %zuB (%.1fKB)", free_internal_heap, free_internal_heap/1024.0f);
   
   if (model_length_ > 0) {
     float ratio = static_cast<float>(tensor_arena_size_actual_) / model_length_;

@@ -32,6 +32,7 @@ class MeterReaderTFLite : public Component {
   bool allocate_tensor_arena();
   bool load_model();
   void report_memory_status();
+  size_t get_arena_peak_bytes() const;
 
   int input_width_{96};
   int input_height_{96};
