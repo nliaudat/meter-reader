@@ -88,8 +88,20 @@ void MeterReaderTFLite::process_image() {
     return;
   }
 
+  // Log input tensor details
+  ESP_LOGD(TAG, "Input tensor dimensions: %d x %d x %d", 
+           input_tensor->dims->data[1],  // width
+           input_tensor->dims->data[2],  // height
+           input_tensor->dims->data[3]); // channels
+  ESP_LOGD(TAG, "Input tensor bytes: %d", input_tensor->bytes);
+  ESP_LOGD(TAG, "Image bytes: %d", length);
+
+  // Add image preprocessing if needed
   if (input_tensor->bytes != length) {
-    ESP_LOGE(TAG, "Input tensor size mismatch (%d vs %d)", input_tensor->bytes, length);
+    ESP_LOGE(TAG, "Input tensor size mismatch (%d vs %d). Please check:", 
+             input_tensor->bytes, length);
+    ESP_LOGE(TAG, "- Model input dimensions (should match camera output)");
+    ESP_LOGE(TAG, "- Image format (RGB888, Grayscale, etc.)");
     this->return_image();
     return;
   }
@@ -143,6 +155,7 @@ bool MeterReaderTFLite::load_model() {
     ESP_LOGW(TAG, "PSRAM not available. Large tensor arenas may fail to allocate from internal RAM.");
   }
 
+  ESP_LOGD(TAG, "load_model: calling GetModel()");
   tflite_model_ = tflite::GetModel(model_);
   if (tflite_model_ == nullptr) {
     ESP_LOGE(TAG, "Failed to get model from buffer. The model data may be corrupt or invalid.");
@@ -154,18 +167,21 @@ bool MeterReaderTFLite::load_model() {
     return false;
   }
 
+  ESP_LOGD(TAG, "load_model: allocating tensor arena");
   if (!allocate_tensor_arena()) {
     return false;
   }
 
   static tflite::MicroMutableOpResolver<MAX_OPERATORS> resolver;
 
+  ESP_LOGD(TAG, "load_model: parsing operators");
   const auto *subgraphs = tflite_model_->subgraphs();
   if (subgraphs->size() != 1) {
     ESP_LOGE(TAG, "Only single subgraph models are supported");
     return false;
   }
 
+  // First collect all required ops from operator codes
   std::set<tflite::BuiltinOperator> required_ops;
   for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
     const auto *op_code = tflite_model_->operator_codes()->Get(i);
@@ -173,17 +189,20 @@ bool MeterReaderTFLite::load_model() {
     required_ops.insert(builtin_code);
   }
 
+	// Register all required ops at once
   if (!meter_reader_tflite::OpResolverManager::RegisterOps(resolver, required_ops, TAG)) {
     ESP_LOGE(TAG, "Failed to register all required operators");
     return false;
   }
 
+  ESP_LOGD(TAG, "load_model: creating interpreter");
   interpreter_ = std::make_unique<tflite::MicroInterpreter>(
       tflite_model_,
       resolver,
       tensor_arena_.get(),
       tensor_arena_size_actual_);
 
+  ESP_LOGD(TAG, "load_model: allocating tensors");
   if (interpreter_->AllocateTensors() != kTfLiteOk) {
     ESP_LOGE(TAG, "Failed to allocate tensors. Check logs for details from tflite_micro.");
     return false;
@@ -206,6 +225,9 @@ bool MeterReaderTFLite::allocate_tensor_arena() {
   uint8_t *arena_ptr = static_cast<uint8_t *>(heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (arena_ptr == nullptr) {
     ESP_LOGW(TAG, "Could not allocate tensor arena from PSRAM, trying internal RAM.");
+	
+  // Allocate from PSRAM if available, otherwise fall back to internal RAM.
+  // Using heap_caps_malloc is more robust for large allocations on ESP32.
     arena_ptr = static_cast<uint8_t *>(heap_caps_malloc(tensor_arena_size_actual_, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   }
 
@@ -214,11 +236,13 @@ bool MeterReaderTFLite::allocate_tensor_arena() {
     return false;
   }
 
+  // Use reset() to assign the raw pointer to the unique_ptr with the custom deleter.
   tensor_arena_.reset(arena_ptr);
   return true;
 }
 
 size_t MeterReaderTFLite::get_arena_peak_bytes() const {
+	// arena_used_bytes() returns the peak memory usage of the arena after tensor allocation.
   return interpreter_ ? interpreter_->arena_used_bytes() : 0;
 }
 
@@ -242,6 +266,22 @@ void MeterReaderTFLite::report_memory_status() {
     float ratio = static_cast<float>(tensor_arena_size_actual_) / model_length_;
     ESP_LOGI(TAG, "  Arena/Model Ratio: %.1fx", ratio);
   }
+}
+
+
+
+// Helper function to dump tensor contents for debugging.
+
+
+static void hexdump_tensor(const char *tag, const TfLiteTensor *tensor) {
+
+  if (tensor == nullptr) {
+    ESP_LOGW(tag, "Attempted to hexdump a null tensor.");
+    return;
+  }
+  // The 'name' field is removed in newer TFLite versions.
+  ESP_LOGD(tag, "Hexdump of tensor (%zu bytes, type %d):", tensor->bytes, tensor->type);
+  ESP_LOG_BUFFER_HEXDUMP(tag, tensor->data.data, tensor->bytes, ESP_LOG_DEBUG);
 }
 
 void MeterReaderTFLite::loop() {
