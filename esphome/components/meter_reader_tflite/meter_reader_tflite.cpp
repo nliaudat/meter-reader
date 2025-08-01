@@ -10,6 +10,7 @@ static const char *const TAG = "meter_reader_tflite";
 void MeterReaderTFLite::setup() {
   ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
   this->set_timeout(1000, [this]() {
+    ESP_LOGD(TAG, "load_model: start");
     if (!this->load_model()) {
       ESP_LOGE(TAG, "Failed to load model. Marking component as failed.");
       this->mark_failed();
@@ -17,8 +18,6 @@ void MeterReaderTFLite::setup() {
     }
     this->model_loaded_ = true;
     ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
-	
-  MeterReaderTFLite::report_memory_status();
   });
 }
 
@@ -107,26 +106,6 @@ void MeterReaderTFLite::process_image() {
   return_image();
 }
 
-// void MeterReaderTFLite::process_single_image(std::shared_ptr<camera::CameraImage> image) {
-  // const uint8_t *data = image->get_data_buffer();
-  // size_t length = image->get_data_length();
-
-  // if (!model_handler_.invoke_model(data, length)) {
-    // ESP_LOGE(TAG, "Model invocation failed");
-    // return;
-  // }
-
-  // float meter_value = model_handler_.get_output_value(0);
-  // float confidence = model_handler_.get_output_value(1);
-
-  // ESP_LOGD(TAG, "Inference result: value=%.2f, confidence=%.2f", meter_value, confidence);
-
-  // if (confidence >= confidence_threshold_ && value_sensor_) {
-    // value_sensor_->publish_state(meter_value);
-  // } else {
-    // ESP_LOGW(TAG, "Low confidence (%.2f < %.2f), skipping update", confidence, confidence_threshold_);
-  // }
-// }
 
 void MeterReaderTFLite::process_single_image(std::shared_ptr<camera::CameraImage> image) {
   const uint8_t *data = image->get_data_buffer();
@@ -142,27 +121,6 @@ void MeterReaderTFLite::process_single_image(std::shared_ptr<camera::CameraImage
   }
 }
 
-// bool MeterReaderTFLite::load_model() {
-  // if (model_ == nullptr || model_length_ == 0) {
-    // ESP_LOGE(TAG, "No model data available");
-    // return false;
-  // }
-
-  // ESP_LOGI(TAG, "Loading model (%zu bytes)", model_length_);
-
-  // if (!allocate_tensor_arena()) {
-    // return false;
-  // }
-
-  // if (!model_handler_.load_model(model_, model_length_)) {
-    // ESP_LOGE(TAG, "Failed to load model");
-    // return false;
-  // }
-
-  // ESP_LOGI(TAG, "Model loaded successfully");
-  // memory_manager_.report_memory_status();
-  // return true;
-// }
 
 bool MeterReaderTFLite::allocate_tensor_arena() {
   this->tensor_arena_allocation_ = this->memory_manager_.allocate_tensor_arena(tensor_arena_size_requested_);
@@ -171,12 +129,24 @@ bool MeterReaderTFLite::allocate_tensor_arena() {
 }
 
 bool MeterReaderTFLite::load_model() {
-  if (!this->model_handler_.load_model(model_, model_length_,
-                                     this->tensor_arena_allocation_.data.get(),
-                                     this->tensor_arena_size_actual_)) {
-    ESP_LOGE(TAG, "Failed to load model");
+  ESP_LOGD(TAG, "load_model: allocating tensor arena");
+  if (!allocate_tensor_arena()) {
     return false;
   }
+
+#ifdef ESP_NN
+  ESP_LOGI(TAG, "ESP-NN optimizations are enabled");
+#else
+  ESP_LOGW(TAG, "ESP-NN not enabled - using default kernels");
+#endif
+
+  if (!model_handler_.load_model(model_, model_length_,
+                               tensor_arena_allocation_.data.get(),
+                               tensor_arena_size_actual_)) {
+    return false;
+  }
+
+  report_memory_status();
   return true;
 }
 

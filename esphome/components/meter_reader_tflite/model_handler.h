@@ -9,7 +9,8 @@
 namespace esphome {
 namespace meter_reader_tflite {
 
-constexpr size_t MAX_OPERATORS = 90;  // Define the constant here
+constexpr size_t MAX_OPERATORS = 90;
+// static const char *const TAG = "ModelHandler";
 
 class ModelHandler {
  public:

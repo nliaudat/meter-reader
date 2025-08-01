@@ -62,6 +62,11 @@ async def to_code(config):
         ref="1.3.3~1"
     )
     
+    # esp32.add_idf_component(
+        # name="espressif/esp_jpeg",
+        # ref="1.3.1"
+    # )
+    
     cg.add_build_flag("-DTF_LITE_STATIC_MEMORY")
     cg.add_build_flag("-DTF_LITE_DISABLE_X86_NEON")
     cg.add_build_flag("-DESP_NN")

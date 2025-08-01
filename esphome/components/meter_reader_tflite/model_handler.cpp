@@ -3,12 +3,17 @@
 
 namespace esphome {
 namespace meter_reader_tflite {
-
+	
 static const char *const TAG = "ModelHandler";
 
 bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
                             uint8_t* tensor_arena, size_t tensor_arena_size) {
+  ESP_LOGD(TAG, "load_model: start");
+  ESP_LOGI(TAG, "Loading model (%zu bytes)", model_size);
+
   tflite_model_ = tflite::GetModel(model_data);
+  ESP_LOGD(TAG, "load_model: calling GetModel()");
+  
   if (tflite_model_->version() != TFLITE_SCHEMA_VERSION) {
     ESP_LOGE(TAG, "Model schema version mismatch");
     return false;
@@ -17,6 +22,7 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
   static tflite::MicroMutableOpResolver<MAX_OPERATORS> resolver;
   std::set<tflite::BuiltinOperator> required_ops;
   
+  ESP_LOGD(TAG, "load_model: parsing operators");
   for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
     const auto *op_code = tflite_model_->operator_codes()->Get(i);
     required_ops.insert(op_code->builtin_code());
@@ -27,13 +33,21 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
     return false;
   }
 
+  ESP_LOGD(TAG, "load_model: creating interpreter");
   interpreter_ = std::make_unique<tflite::MicroInterpreter>(
       tflite_model_,
       resolver,
       tensor_arena,
       tensor_arena_size);
 
-  return interpreter_->AllocateTensors() == kTfLiteOk;
+  ESP_LOGD(TAG, "load_model: allocating tensors");
+  if (interpreter_->AllocateTensors() != kTfLiteOk) {
+    ESP_LOGE(TAG, "Failed to allocate tensors");
+    return false;
+  }
+
+  ESP_LOGI(TAG, "Model loaded successfully");
+  return true;
 }
 
 bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
