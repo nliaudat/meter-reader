@@ -18,7 +18,10 @@ class MemoryManager {
   };
 
   static AllocationResult allocate_tensor_arena(size_t requested_size);
-  static void report_memory_status();
+  static void report_memory_status(size_t requested_size, 
+                                 size_t allocated_size,
+                                 size_t peak_usage,
+                                 size_t model_size);
 };
 
 }  // namespace meter_reader_tflite

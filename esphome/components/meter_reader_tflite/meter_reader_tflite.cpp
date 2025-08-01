@@ -17,6 +17,8 @@ void MeterReaderTFLite::setup() {
     }
     this->model_loaded_ = true;
     ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
+	
+  MeterReaderTFLite::report_memory_status();
   });
 }
 
@@ -176,6 +178,15 @@ bool MeterReaderTFLite::load_model() {
     return false;
   }
   return true;
+}
+
+void MeterReaderTFLite::report_memory_status() {
+  memory_manager_.report_memory_status(
+    tensor_arena_size_requested_,
+    tensor_arena_size_actual_,
+    this->get_arena_peak_bytes(),
+    model_length_
+  );
 }
 
 size_t MeterReaderTFLite::get_arena_peak_bytes() const {
