@@ -72,37 +72,204 @@ void MeterReaderTFLite::update() {
   camera_->request_image(camera::IDLE);
 }
 
+void MeterReaderTFLite::set_crop_zones(const std::string &zones_json) {
+  this->parse_crop_zones(zones_json);
+}
+
+void MeterReaderTFLite::parse_crop_zones(const std::string &zones_json) {
+  crop_zones_.clear();
+  
+  // Simple parser for the specific format: [[x1,y1,x2,y2], [x1,y1,x2,y2], ...]
+  std::string stripped = zones_json;
+  stripped.erase(std::remove(stripped.begin(), stripped.end(), ' '), stripped.end());
+  stripped.erase(std::remove(stripped.begin(), stripped.end(), '\n'), stripped.end());
+  stripped.erase(std::remove(stripped.begin(), stripped.end(), '\r'), stripped.end());
+  stripped.erase(std::remove(stripped.begin(), stripped.end(), '\t'), stripped.end());
+
+  if (stripped.empty() || stripped == "[]") {
+    ESP_LOGD(TAG, "No crop zones defined");
+    return;
+  }
+
+  if (stripped.front() == '[' && stripped.back() == ']') {
+    stripped = stripped.substr(1, stripped.length() - 2);
+  }
+
+  size_t pos = 0;
+  while (pos < stripped.length()) {
+    // Find next zone
+    size_t start = stripped.find('[', pos);
+    if (start == std::string::npos) break;
+    size_t end = stripped.find(']', start);
+    if (end == std::string::npos) break;
+
+    std::string zone_str = stripped.substr(start + 1, end - start - 1);
+    std::vector<int> coords;
+    size_t coord_start = 0;
+    size_t comma_pos;
+
+    // Parse coordinates
+    while ((comma_pos = zone_str.find(',', coord_start)) != std::string::npos) {
+      std::string num_str = zone_str.substr(coord_start, comma_pos - coord_start);
+      coords.push_back(std::stoi(num_str));
+      coord_start = comma_pos + 1;
+      if (comma_pos == std::string::npos) break;
+    }
+    // Get last number
+    if (coord_start < zone_str.length()) {
+      coords.push_back(std::stoi(zone_str.substr(coord_start)));
+    }
+
+    if (coords.size() == 4) {
+      crop_zones_.push_back({coords[0], coords[1], coords[2], coords[3]});
+      ESP_LOGD(TAG, "Added crop zone: [%d,%d,%d,%d]", 
+               coords[0], coords[1], coords[2], coords[3]);
+    } else {
+      ESP_LOGE(TAG, "Invalid zone format: %s", zone_str.c_str());
+    }
+
+    pos = end + 1;
+  }
+
+  ESP_LOGI(TAG, "Parsed %d crop zones", crop_zones_.size());
+}
+
+
+ 
+void MeterReaderTFLite::set_camera_format(int width, int height, const std::string &pixel_format) {
+  camera_width_ = width;
+  camera_height_ = height;
+  pixel_format_ = pixel_format;
+  
+  if (pixel_format == "RGB888") {
+    bytes_per_pixel_ = 3;
+  } else if (pixel_format == "GRAYSCALE") {
+    bytes_per_pixel_ = 1;
+  } else if (pixel_format == "RGB565") {
+    bytes_per_pixel_ = 2;
+  } else {
+    ESP_LOGE(TAG, "Unsupported pixel format: %s", pixel_format.c_str());
+    bytes_per_pixel_ = 3; // Default to RGB888
+  }
+}
+
+std::shared_ptr<camera::CameraImage> MeterReaderTFLite::crop_and_resize_image(
+    std::shared_ptr<camera::CameraImage> image, const CropZone &zone) {
+  // Validate camera format is set
+  if (camera_width_ == 0 || camera_height_ == 0) {
+    ESP_LOGE(TAG, "Camera format not initialized!");
+    return nullptr;
+  }
+
+  // Validate crop zone
+  if (zone.x1 < 0 || zone.y1 < 0 || 
+      zone.x2 > camera_width_ || zone.y2 > camera_height_ ||
+      zone.x1 >= zone.x2 || zone.y1 >= zone.y2) {
+    ESP_LOGE(TAG, "Invalid crop zone [%d,%d,%d,%d] for camera %dx%d",
+             zone.x1, zone.y1, zone.x2, zone.y2, camera_width_, camera_height_);
+    return nullptr;
+  }
+
+  const int crop_width = zone.x2 - zone.x1;
+  const int crop_height = zone.y2 - zone.y1;
+  
+  // Allocate buffer for final image
+  const size_t output_size = model_input_width_ * model_input_height_ * bytes_per_pixel_;
+  uint8_t *output_data = new uint8_t[output_size];
+
+  // Get source image data
+  const uint8_t *src = image->get_data_buffer();
+
+  // Handle different pixel formats
+  if (pixel_format_ == "RGB888") {
+    // RGB888 implementation
+    const float x_ratio = static_cast<float>(crop_width) / model_input_width_;
+    const float y_ratio = static_cast<float>(crop_height) / model_input_height_;
+
+    for (int y = 0; y < model_input_height_; y++) {
+      for (int x = 0; x < model_input_width_; x++) {
+        const int src_x = zone.x1 + static_cast<int>(x * x_ratio);
+        const int src_y = zone.y1 + static_cast<int>(y * y_ratio);
+        const size_t src_idx = (src_y * camera_width_ + src_x) * 3;
+        const size_t dst_idx = (y * model_input_width_ + x) * 3;
+        
+        output_data[dst_idx] = src[src_idx];     // R
+        output_data[dst_idx+1] = src[src_idx+1]; // G
+        output_data[dst_idx+2] = src[src_idx+2]; // B
+      }
+    }
+  }
+  else if (pixel_format_ == "GRAYSCALE") {
+    // Grayscale implementation
+    const float x_ratio = static_cast<float>(crop_width) / model_input_width_;
+    const float y_ratio = static_cast<float>(crop_height) / model_input_height_;
+
+    for (int y = 0; y < model_input_height_; y++) {
+      for (int x = 0; x < model_input_width_; x++) {
+        const int src_x = zone.x1 + static_cast<int>(x * x_ratio);
+        const int src_y = zone.y1 + static_cast<int>(y * y_ratio);
+        output_data[y * model_input_width_ + x] = src[src_y * camera_width_ + src_x];
+      }
+    }
+  }
+
+  // Create wrapper for the output image
+  struct CroppedImage : public camera::CameraImage {
+    uint8_t *data_;
+    size_t length_;
+    
+    CroppedImage(uint8_t *data, size_t length) : data_(data), length_(length) {}
+    ~CroppedImage() override { delete[] data_; }
+    
+    uint8_t *get_data_buffer() override { return data_; }
+    size_t get_data_length() override { return length_; }
+    // bool was_requested_by(uint8_t) const override { return true; }
+	bool was_requested_by(camera::CameraRequester requester) const override { 
+	  (void)requester;
+	  return true;
+	}
+  };
+  
+  return std::make_shared<CroppedImage>(output_data, output_size);
+}
+
 void MeterReaderTFLite::process_image() {
   if (!current_image_) {
     ESP_LOGE(TAG, "No image available for processing");
     return;
   }
 
-  const uint8_t *data = current_image_->get_data_buffer();
-  size_t length = current_image_->get_data_length();
+  if (crop_zones_.empty()) {
+    // Process full image if no crop zones defined
+    ESP_LOGD(TAG, "Processing full image");
+    process_single_image(current_image_);
+  } else {
+    // Process each crop zone
+    for (const auto &zone : crop_zones_) {
+      ESP_LOGD(TAG, "Processing crop zone [%d,%d,%d,%d]", 
+               zone.x1, zone.y1, zone.x2, zone.y2);
+      auto cropped = crop_and_resize_image(current_image_, zone);
+      if (cropped) {
+        process_single_image(cropped);
+      }
+    }
+  }
+
+  this->return_image();
+}
+
+void MeterReaderTFLite::process_single_image(std::shared_ptr<camera::CameraImage> image) {
+  const uint8_t *data = image->get_data_buffer();
+  size_t length = image->get_data_length();
 
   TfLiteTensor *input_tensor = interpreter_->input(0);
   if (!input_tensor) {
     ESP_LOGE(TAG, "Failed to get input tensor");
-    this->return_image();
     return;
   }
 
-  // Log input tensor details
-  ESP_LOGD(TAG, "Input tensor dimensions: %d x %d x %d", 
-           input_tensor->dims->data[1],  // width
-           input_tensor->dims->data[2],  // height
-           input_tensor->dims->data[3]); // channels
-  ESP_LOGD(TAG, "Input tensor bytes: %d", input_tensor->bytes);
-  ESP_LOGD(TAG, "Image bytes: %d", length);
-
-  // Add image preprocessing if needed
   if (input_tensor->bytes != length) {
-    ESP_LOGE(TAG, "Input tensor size mismatch (%d vs %d). Please check:", 
-             input_tensor->bytes, length);
-    ESP_LOGE(TAG, "- Model input dimensions (should match camera output)");
-    ESP_LOGE(TAG, "- Image format (RGB888, Grayscale, etc.)");
-    this->return_image();
+    ESP_LOGE(TAG, "Input tensor size mismatch (%d vs %d)", input_tensor->bytes, length);
     return;
   }
 
@@ -111,14 +278,12 @@ void MeterReaderTFLite::process_image() {
   TfLiteStatus invoke_status = interpreter_->Invoke();
   if (invoke_status != kTfLiteOk) {
     ESP_LOGE(TAG, "Invoke failed");
-    this->return_image();
     return;
   }
 
   TfLiteTensor *output_tensor = interpreter_->output(0);
   if (!output_tensor) {
     ESP_LOGE(TAG, "Failed to get output tensor");
-    this->return_image();
     return;
   }
 
@@ -132,13 +297,7 @@ void MeterReaderTFLite::process_image() {
   } else {
     ESP_LOGW(TAG, "Low confidence (%.2f < %.2f), skipping update", confidence, confidence_threshold_);
   }
-
-  this->return_image();
 }
-
-// void MeterReaderTFLite::on_error(const std::string &error) {
-  // ESP_LOGE(TAG, "Camera error: %s", error.c_str());
-// }
 
 bool MeterReaderTFLite::load_model() {
   ESP_LOGD(TAG, "load_model: start");
@@ -283,6 +442,8 @@ static void hexdump_tensor(const char *tag, const TfLiteTensor *tensor) {
   ESP_LOGD(tag, "Hexdump of tensor (%zu bytes, type %d):", tensor->bytes, tensor->type);
   ESP_LOG_BUFFER_HEXDUMP(tag, tensor->data.data, tensor->bytes, ESP_LOG_DEBUG);
 }
+
+
 
 void MeterReaderTFLite::loop() {
   // Nothing here; image capture is async via callback
