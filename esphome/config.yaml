@@ -201,14 +201,14 @@ api:
   
   
 meter_reader_tflite:
-  # model_url: "dig-class100-0180-s2-q.tflite" # "https://github.com/nliaudat/meter-reader/blob/dev/models/dig-class100-0180-s2-q.tflite"
-  # model_url: "https://github.com/nliaudat/meter-reader/raw/refs/heads/dev/models/dig-class100-0180-s2-q.tflite"
-  # model_path: "dig-class100-0180-s2-q.tflite"
+  camera_id: ${id_prefix}espcam
   model: "dig-class100-0180-s2-q.tflite"  # Must be in same directory as YAML
-  input_width: 96
-  input_height: 96
+  input_width: 32
+  input_height: 32
   confidence_threshold: 0.7
   tensor_arena_size: "500KB" #"800KB"
+  update_interval: 60s
+
 
 
 packages:
