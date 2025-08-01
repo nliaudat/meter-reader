@@ -19,7 +19,11 @@ struct ImageProcessorConfig {
   bool validate() const {
     return camera_width > 0 && camera_height > 0 &&
            model_input_width > 0 && model_input_height > 0 &&
-           (pixel_format == "RGB888" || pixel_format == "GRAYSCALE");
+           (pixel_format == "RGB888" || pixel_format == "GRAYSCALE" ||
+            pixel_format == "RGB565" || pixel_format == "YUV422" ||
+            pixel_format == "YUV420" || pixel_format == "JPEG" ||
+            pixel_format == "RAW" || pixel_format == "RGB444" ||
+            pixel_format == "RGB555");
   }
 };
 
@@ -42,6 +46,10 @@ class ImageProcessor {
 
  protected:
   ProcessResult crop_and_resize(
+      std::shared_ptr<camera::CameraImage> image,
+      const CropZone &zone);
+
+  ProcessResult decode_and_process_jpeg(
       std::shared_ptr<camera::CameraImage> image,
       const CropZone &zone);
       
