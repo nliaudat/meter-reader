@@ -41,12 +41,12 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_MODEL): cv.file_,
     #cv.Required(CONF_CAMERA_ID): cv.use_id(camera.Camera),
     cv.Required(CONF_CAMERA_ID): cv.use_id(esp32_camera.ESP32Camera),
-    cv.Optional(CONF_INPUT_WIDTH, default=96): cv.positive_int,
-    cv.Optional(CONF_INPUT_HEIGHT, default=96): cv.positive_int,
+    cv.Optional(CONF_INPUT_WIDTH, default=32): cv.positive_int,
+    cv.Optional(CONF_INPUT_HEIGHT, default=32): cv.positive_int,
     cv.Optional(CONF_CONFIDENCE_THRESHOLD, default=0.7): cv.float_range(
         min=0.0, max=1.0
     ),
-    cv.Optional(CONF_TENSOR_ARENA_SIZE, default='800KB'): cv.All(
+    cv.Optional(CONF_TENSOR_ARENA_SIZE, default='800KB'): cv.All( ### TODO : change with no range
         datasize_to_bytes,
         cv.Range(min=100 * 1024, max=800 * 1024)
     ),
