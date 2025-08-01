@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/components/esp32_camera/esp32_camera.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
@@ -11,9 +12,10 @@
 namespace esphome {
 namespace meter_reader_tflite {
 
-class MeterReaderTFLite : public Component {
+class MeterReaderTFLite : public PollingComponent {
  public:
   void setup() override;
+  void update() override;
   void loop() override;
   float get_setup_priority() const override { return setup_priority::LATE; }
 
@@ -29,12 +31,15 @@ class MeterReaderTFLite : public Component {
     model_length_ = length;
   }
 
+  void set_camera(esp32_camera::ESP32Camera *camera) { this->camera_ = camera; }
+
  protected:
   bool allocate_tensor_arena();
   bool load_model();
   void report_memory_status();
   size_t get_arena_peak_bytes() const;
 
+  esp32_camera::ESP32Camera *camera_{nullptr};
   int input_width_{96};
   int input_height_{96};
   float confidence_threshold_{0.7f};

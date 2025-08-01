@@ -7,7 +7,7 @@ namespace esphome {
 namespace meter_reader_tflite {
 
 static const char *const TAG = "meter_reader_tflite";
-constexpr size_t MAX_OPERATORS = 128;  // Define a constant for clarity and easy modification
+constexpr size_t MAX_OPERATORS = 90;
 
 // Helper function to dump tensor contents for debugging.
 static void hexdump_tensor(const char *tag, const TfLiteTensor *tensor) {
@@ -36,6 +36,24 @@ void MeterReaderTFLite::setup() {
   });
 }
 
+void MeterReaderTFLite::update() {
+
+    ESP_LOGD(TAG, "Update called");
+    
+    if (!model_loaded_) {
+        ESP_LOGW(TAG, "Model not loaded, skipping update");
+        return;
+    }
+    
+    // PollingComponent::update();  // Call base class implementation
+
+    // meter reading logic here
+    // TODO //
+    // This is called according to your polling interval (60s from config)
+    // 1. Get camera image
+    // 2. Process with TFLite
+    // 3. Update sensor values
+}
 
 bool MeterReaderTFLite::load_model() {
   ESP_LOGD(TAG, "load_model: start");
@@ -181,7 +199,9 @@ void MeterReaderTFLite::report_memory_status() {
 
 void MeterReaderTFLite::loop() {
   // Inference logic will go here
+  // PollingComponent::loop();
 }
 
 }  // namespace meter_reader_tflite
 }  // namespace esphome
+

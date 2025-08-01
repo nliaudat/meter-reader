@@ -2,14 +2,17 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 import os
-from esphome.const import CONF_ID, CONF_MODEL
+from esphome.const import CONF_ID, CONF_MODEL, CONF_SENSOR
 from esphome.core import CORE, HexInt
-from esphome.components import esp32
+#from esphome.components import esp32, camera, sensor
+from esphome.components import esp32, sensor
+import esphome.components.esp32_camera as esp32_camera
 
 CODEOWNERS = ["@nl"]
-DEPENDENCIES = ['esp32']
-AUTO_LOAD = []
+DEPENDENCIES = ['esp32', 'camera']
+AUTO_LOAD = ['sensor']
 
+CONF_CAMERA_ID = 'camera_id'
 CONF_TENSOR_ARENA_SIZE = 'tensor_arena_size'
 CONF_INPUT_WIDTH = 'input_width'
 CONF_INPUT_HEIGHT = 'input_height'
@@ -17,8 +20,7 @@ CONF_CONFIDENCE_THRESHOLD = 'confidence_threshold'
 CONF_RAW_DATA_ID = 'raw_data_id'
 
 meter_reader_tflite_ns = cg.esphome_ns.namespace('meter_reader_tflite')
-MeterReaderTFLite = meter_reader_tflite_ns.class_('MeterReaderTFLite', cg.Component)
-
+MeterReaderTFLite = meter_reader_tflite_ns.class_('MeterReaderTFLite', cg.PollingComponent)
 
 def datasize_to_bytes(value):
     """Parse a data size string with units like KB, MB to bytes."""
@@ -37,6 +39,8 @@ def datasize_to_bytes(value):
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(MeterReaderTFLite),
     cv.Required(CONF_MODEL): cv.file_,
+    #cv.Required(CONF_CAMERA_ID): cv.use_id(camera.Camera),
+    cv.Required(CONF_CAMERA_ID): cv.use_id(esp32_camera.ESP32Camera),
     cv.Optional(CONF_INPUT_WIDTH, default=96): cv.positive_int,
     cv.Optional(CONF_INPUT_HEIGHT, default=96): cv.positive_int,
     cv.Optional(CONF_CONFIDENCE_THRESHOLD, default=0.7): cv.float_range(
@@ -44,10 +48,11 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     cv.Optional(CONF_TENSOR_ARENA_SIZE, default='800KB'): cv.All(
         datasize_to_bytes,
-        cv.Range(min=400 * 1024, max=800 * 1024)
+        cv.Range(min=100 * 1024, max=800 * 1024)
     ),
+    cv.Optional(CONF_SENSOR): sensor.sensor_schema(accuracy_decimals=2),
     cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
-}).extend(cv.COMPONENT_SCHEMA)
+}).extend(cv.polling_component_schema('60s'))
 
 async def to_code(config):
     """Code generation for the component."""
@@ -63,6 +68,13 @@ async def to_code(config):
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
+
+    cam = await cg.get_variable(config[CONF_CAMERA_ID])
+    cg.add(var.set_camera(cam))
+
+    if CONF_SENSOR in config:
+        sens = await sensor.new_sensor(config[CONF_SENSOR])
+        cg.add(var.set_value_sensor(sens))
     
     model_path = config[CONF_MODEL]
     
