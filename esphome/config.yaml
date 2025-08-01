@@ -95,7 +95,7 @@ substitutions:
   revision: "1.0"
   
   # camera
-  camera_pixel_format: JPEG #RGB888 #  Displays: RGB565, RGB888 | Cameras: YUV422, YUV420, RAW | Efficiency: Grayscale, YUV420, JPEG
+  camera_pixel_format: RGB888 # (cropping implementation assumes RGB888 format) | Displays: RGB565, RGB888 | Cameras: YUV422, YUV420, RAW | Efficiency: Grayscale, YUV420, JPEG
   # camera_width: 640
   # camera_height: 480
   camera_resolution: 800x600 #https://esphome.io/components/esp32_camera.html
@@ -120,8 +120,8 @@ ota:
 
 safe_mode:
 
-api:
-  reboot_timeout: 30min
+# api:
+  # reboot_timeout: 30min
 
 #################################################
 ######### NEW CAMERA COMPONENT ##################
@@ -199,15 +199,48 @@ api:
 # web_server:
   # port: 80
   
+globals:
+  - id: crop_zones
+    type: std::string
+    restore_value: false
+    initial_value: "\"[]\""
+    #"[[80, 233, 116, 307], [144, 235, 180, 307], [202, 234, 238, 308], [265, 233, 304, 306], [328, 232, 367, 311], [393, 231, 433, 310], [460, 235, 499, 311], [520, 235, 559, 342]]"
+
+
+text_sensor:
+  - platform: template
+    name: "Crop Zones"
+    id: crop_zones_sensor
+    on_value:
+      then:
+        - lambda: |-
+            ESP_LOGI("crop_zones", "Received crop zones: %s", x.c_str());
+            id(meter_reader).set_crop_zones(x);
+
+api:
+  services:
+    - service: set_crop_zones
+      variables:
+        zones: string
+      then:
+        - text_sensor.template.publish:
+            id: crop_zones_sensor
+            state: !lambda 'return zones;'
+  
   
 meter_reader_tflite:
+  id: meter_reader
   camera_id: ${id_prefix}espcam
   model: "dig-class100-0180-s2-q.tflite"  # Must be in same directory as YAML
-  input_width: 32
+  input_width: 20 # Model input dimensions
   input_height: 32
   confidence_threshold: 0.7
-  tensor_arena_size: "500KB" #"800KB"
+  tensor_arena_size: "500KB" # check_tflite_model.py gives : Total Arena Size: 415.08 KB (Approx. RAM needed for inference)
   update_interval: 60s
+    # on_crop_zones_update:
+    # then:
+      # - lambda: |-
+          # id(meter_reader).set_crop_zones(id(crop_zones).value());
 
 
 

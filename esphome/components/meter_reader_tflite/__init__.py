@@ -62,6 +62,11 @@ async def to_code(config):
         ref="1.3.3~1"
     )
     
+    # esp32.add_idf_component(
+        # name="espressif/esp_jpeg",
+        # ref="1.3.1"
+    # )
+    
     cg.add_build_flag("-DTF_LITE_STATIC_MEMORY")
     cg.add_build_flag("-DTF_LITE_DISABLE_X86_NEON")
     cg.add_build_flag("-DESP_NN")
@@ -92,3 +97,16 @@ async def to_code(config):
     
     # The config value is already an integer thanks to the schema validator
     cg.add(var.set_tensor_arena_size(config[CONF_TENSOR_ARENA_SIZE]))
+    
+    # Get camera resolution from substitutions
+    width, height = 800, 600  # Defaults
+    if CORE.config['substitutions'].get('camera_resolution'):
+        res = CORE.config['substitutions']['camera_resolution']
+        if 'x' in res:
+            width, height = map(int, res.split('x'))
+    
+    # Get pixel format from substitutions
+    pixel_format = CORE.config['substitutions'].get('camera_pixel_format', 'RGB888')
+    
+    # Set camera format
+    cg.add(var.set_camera_format(width, height, pixel_format))
