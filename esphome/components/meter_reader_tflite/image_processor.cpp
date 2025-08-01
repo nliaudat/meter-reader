@@ -41,6 +41,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
   std::vector<ProcessResult> results;
   
   if (zones.empty()) {
+	  ESP_LOGE(TAG, "Empty zone, do not crop");
     // Process full image if no zones specified
     CropZone full_zone{0, 0, config_.camera_width, config_.camera_height};
     ProcessResult result;
