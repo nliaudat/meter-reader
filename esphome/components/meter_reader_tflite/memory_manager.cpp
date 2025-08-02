@@ -8,7 +8,7 @@ namespace meter_reader_tflite {
 static const char *const TAG = "MemoryManager";
 
 MemoryManager::AllocationResult MemoryManager::allocate_tensor_arena(size_t requested_size) {
-  ESP_LOGD(TAG, "Allocating tensor arena (%zu bytes)", requested_size);
+  ESP_LOGD(TAG, "Attempting to allocate %zu bytes for tensor arena", requested_size);
   
   AllocationResult result;
   result.actual_size = requested_size;
@@ -16,6 +16,12 @@ MemoryManager::AllocationResult MemoryManager::allocate_tensor_arena(size_t requ
   // First try PSRAM
   uint8_t *arena_ptr = static_cast<uint8_t*>(
       heap_caps_malloc(requested_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	  
+  if (arena_ptr) {
+    ESP_LOGD(TAG, "Allocated %zu bytes at %p (PSRAM: %s)", 
+             requested_size, arena_ptr, 
+             (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) ? "Yes" : "No"));
+  }
   
   if (!arena_ptr) {
     ESP_LOGW(TAG, "PSRAM allocation failed, trying internal RAM");

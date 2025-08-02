@@ -52,29 +52,69 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
 
 bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
                               float* output_value, float* output_confidence) {
-  if (!interpreter_) return false;
+
+  if (!interpreter_) {
+    ESP_LOGE(TAG, "Interpreter not initialized");
+    return false;
+  }
 
   TfLiteTensor *input = input_tensor();
+  
+  if (!input) {
+    ESP_LOGE(TAG, "No input tensor available");
+    return false;
+  }
+
+  ESP_LOGD(TAG, "Input tensor details:");
+  ESP_LOGD(TAG, "  - Type: %d", input->type);
+  ESP_LOGD(TAG, "  - Bytes: %d", input->bytes);
+  ESP_LOGD(TAG, "  - Dimensions: %d", input->dims->size);
+  for (int i = 0; i < input->dims->size; i++) {
+    ESP_LOGD(TAG, "    - dim[%d]: %d", i, input->dims->data[i]);
+  }
+  
   if (!input || input->bytes != input_size) {
-    ESP_LOGE(TAG, "Input tensor size mismatch");
+    ESP_LOGE(TAG, "Input tensor size mismatch (%d != %zu)", input->bytes, input_size);
     return false;
   }
 
   memcpy(input->data.data, input_data, input_size);
   
+  ESP_LOGD(TAG, "Invoking model interpreter");
   if (interpreter_->Invoke() != kTfLiteOk) {
-    ESP_LOGE(TAG, "Invoke failed");
+    ESP_LOGE(TAG, "Model invocation failed");
     return false;
   }
 
   TfLiteTensor *output = output_tensor();
-  if (!output || output->bytes < 2 * sizeof(float)) {
-    ESP_LOGE(TAG, "Invalid output tensor");
+  
+  if (!output) {
+    ESP_LOGE(TAG, "No output tensor available");
     return false;
   }
 
-  if (output_value) *output_value = output->data.f[0];
-  if (output_confidence) *output_confidence = output->data.f[1];
+  ESP_LOGD(TAG, "Output tensor details:");
+  ESP_LOGD(TAG, "  - Type: %d", output->type);
+  ESP_LOGD(TAG, "  - Bytes: %d", output->bytes);
+  ESP_LOGD(TAG, "  - Dimensions: %d", output->dims->size);
+  for (int i = 0; i < output->dims->size; i++) {
+    ESP_LOGD(TAG, "    - dim[%d]: %d", i, output->dims->data[i]);
+  }
+
+  if (output->bytes < 2 * sizeof(float)) {
+    ESP_LOGE(TAG, "Output tensor too small (%d < %zu)", output->bytes, 2 * sizeof(float));
+    return false;
+  }
+
+  if (output_value) {
+    *output_value = output->data.f[0];
+    ESP_LOGD(TAG, "Output value: %.2f", *output_value);
+  }
+  if (output_confidence) {
+    *output_confidence = output->data.f[1];
+    ESP_LOGD(TAG, "Output confidence: %.2f", *output_confidence);
+  }
+  
   return true;
 }
 

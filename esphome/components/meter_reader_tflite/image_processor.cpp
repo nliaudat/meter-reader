@@ -40,22 +40,31 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
     const std::vector<CropZone> &zones) {
   
   std::vector<ProcessResult> results;
-  
+  ESP_LOGD(TAG, "Processing image with %s format, %dx%d input -> %dx%d output",
+           config_.pixel_format.c_str(),
+           config_.camera_width, config_.camera_height,
+           config_.model_input_width, config_.model_input_height);
+
   if (zones.empty()) {
-    ESP_LOGD(TAG, "Processing full image");
+    ESP_LOGD(TAG, "Processing full image as no zones specified");
     CropZone full_zone{0, 0, config_.camera_width, config_.camera_height};
     ProcessResult result;
     if (config_.pixel_format == "JPEG") {
+      ESP_LOGD(TAG, "Using JPEG decoder path");
       result = decode_and_process_jpeg(image, full_zone);
     } else {
+      ESP_LOGD(TAG, "Using direct crop/resize path");
       result = crop_and_resize(image, full_zone);
     }
     if (result.data) {
       results.push_back(std::move(result));
     }
   } else {
+    ESP_LOGD(TAG, "Processing %d crop zones", zones.size());
     for (const auto &zone : zones) {
       if (validate_zone(zone)) {
+        ESP_LOGD(TAG, "Processing zone [%d,%d,%d,%d]", 
+                zone.x1, zone.y1, zone.x2, zone.y2);
         ProcessResult result;
         if (config_.pixel_format == "JPEG") {
           result = decode_and_process_jpeg(image, zone);
@@ -69,8 +78,10 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
     }
   }
   
+  ESP_LOGD(TAG, "Generated %d processed image regions", results.size());
   return results;
 }
+
 
 #ifdef USE_JPEG
 ImageProcessor::ProcessResult ImageProcessor::decode_and_process_jpeg(
@@ -78,6 +89,8 @@ ImageProcessor::ProcessResult ImageProcessor::decode_and_process_jpeg(
     const CropZone &zone) {
   
   ProcessResult result{nullptr, 0};
+  ESP_LOGD(TAG, "Starting JPEG decode for zone [%d,%d,%d,%d]",
+           zone.x1, zone.y1, zone.x2, zone.y2);
   
   if (!validate_zone(zone)) {
     return result;
@@ -175,6 +188,9 @@ ImageProcessor::ProcessResult ImageProcessor::crop_and_resize(
     const CropZone &zone) {
   
   ProcessResult result{nullptr, 0};
+  ESP_LOGD(TAG, "Cropping/resizing zone [%d,%d,%d,%d] to %dx%d",
+           zone.x1, zone.y1, zone.x2, zone.y2,
+           config_.model_input_width, config_.model_input_height);
   
   if (!validate_zone(zone)) {
     return result;

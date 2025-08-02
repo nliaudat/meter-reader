@@ -8,6 +8,13 @@ static const char *const TAG = "meter_reader_tflite";
 
 void MeterReaderTFLite::setup() {
   ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
+  ESP_LOGD(TAG, "Initial configuration:");
+  ESP_LOGD(TAG, "  Camera: %dx%d, Format: %s", 
+           camera_width_, camera_height_, pixel_format_.c_str());
+  ESP_LOGD(TAG, "  Model Input: %dx%d", 
+           model_input_width_, model_input_height_);
+  ESP_LOGD(TAG, "  Confidence Threshold: %.2f", confidence_threshold_);
+  ESP_LOGD(TAG, "  Tensor Arena Size: %zu bytes", tensor_arena_size_requested_);
   
   // Verify all required parameters are set
   if (camera_width_ == 0 || camera_height_ == 0) {
@@ -32,6 +39,7 @@ void MeterReaderTFLite::setup() {
     this->model_loaded_ = true;
     ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
   });
+   
 }
 
 void MeterReaderTFLite::set_input_size(int width, int height) {
@@ -132,22 +140,44 @@ void MeterReaderTFLite::set_crop_zones(const std::string &zones_json) {
 }
 
 void MeterReaderTFLite::process_image() {
-  if (!current_image_ || !image_processor_) {
-    ESP_LOGE(TAG, "No image available or processor not initialized");
+  if (!current_image_) {
+    ESP_LOGE(TAG, "No image available for processing");
     return;
   }
+  if (!image_processor_) {
+    ESP_LOGE(TAG, "Image processor not initialized");
+    return;
+  }
+
+  ESP_LOGD(TAG, "Processing image - Configured size: %dx%d, Format: %s", 
+           camera_width_, camera_height_,
+           pixel_format_.c_str());
+
+  ESP_LOGD(TAG, "Image data length: %zu bytes", current_image_->get_data_length());
 
   auto processed = image_processor_->process_image(
     current_image_,
     crop_zone_handler_.get_zones()
   );
 
+  ESP_LOGD(TAG, "Processed %d image regions", processed.size());
+
   for (auto& result : processed) {
     float value, confidence;
     if (model_handler_.invoke_model(result.data.get(), result.size, &value, &confidence)) {
-      if (confidence >= confidence_threshold_ && value_sensor_) {
-        value_sensor_->publish_state(value);
+      ESP_LOGD(TAG, "Model inference result - Value: %.2f, Confidence: %.2f", value, confidence);
+      
+      if (confidence >= confidence_threshold_) {
+        ESP_LOGD(TAG, "Confidence threshold met (%.2f >= %.2f)", confidence, confidence_threshold_);
+        if (value_sensor_) {
+          value_sensor_->publish_state(value);
+          ESP_LOGD(TAG, "Published value to sensor: %.2f", value);
+        }
+      } else {
+        ESP_LOGD(TAG, "Confidence below threshold (%.2f < %.2f)", confidence, confidence_threshold_);
       }
+    } else {
+      ESP_LOGE(TAG, "Model invocation failed for processed image region");
     }
   }
 
