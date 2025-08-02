@@ -41,8 +41,8 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_MODEL): cv.file_,
     #cv.Required(CONF_CAMERA_ID): cv.use_id(camera.Camera),
     cv.Required(CONF_CAMERA_ID): cv.use_id(esp32_camera.ESP32Camera),
-    cv.Optional(CONF_MODEL_INPUT_WIDTH, default=32): cv.positive_int,
-    cv.Optional(CONF_MODEL_INPUT_HEIGHT, default=32): cv.positive_int,
+    # cv.Optional(CONF_MODEL_INPUT_WIDTH, default=32): cv.positive_int,
+    # cv.Optional(CONF_MODEL_INPUT_HEIGHT, default=32): cv.positive_int,
     cv.Optional(CONF_CONFIDENCE_THRESHOLD, default=0.7): cv.float_range(
         min=0.0, max=1.0
     ),
@@ -98,7 +98,7 @@ async def to_code(config):
     prog_arr = cg.progmem_array(config[CONF_RAW_DATA_ID], rhs)
     
     cg.add(var.set_model(prog_arr, len(model_data)))
-    cg.add(var.set_input_size(config[CONF_MODEL_INPUT_WIDTH], config[CONF_MODEL_INPUT_HEIGHT]))
+    # cg.add(var.set_input_size(config[CONF_MODEL_INPUT_WIDTH], config[CONF_MODEL_INPUT_HEIGHT]))
     cg.add(var.set_confidence_threshold(config[CONF_CONFIDENCE_THRESHOLD]))
     
     # The config value is already an integer thanks to the schema validator

@@ -9,22 +9,15 @@ static const char *const TAG = "meter_reader_tflite";
 void MeterReaderTFLite::setup() {
   ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
   ESP_LOGD(TAG, "Initial configuration:");
+  
   ESP_LOGD(TAG, "  Camera: %dx%d, Format: %s", 
            camera_width_, camera_height_, pixel_format_.c_str());
-  ESP_LOGD(TAG, "  Model Input: %dx%d", 
-           model_input_width_, model_input_height_);
   ESP_LOGD(TAG, "  Confidence Threshold: %.2f", confidence_threshold_);
   ESP_LOGD(TAG, "  Tensor Arena Size: %zu bytes", tensor_arena_size_requested_);
   
   // Verify all required parameters are set
   if (camera_width_ == 0 || camera_height_ == 0) {
     ESP_LOGE(TAG, "Camera dimensions not set!");
-    mark_failed();
-    return;
-  }
-
-  if (model_input_width_ == 0 || model_input_height_ == 0) {
-    ESP_LOGE(TAG, "Model input dimensions not set!");
     mark_failed();
     return;
   }
@@ -39,18 +32,29 @@ void MeterReaderTFLite::setup() {
     this->model_loaded_ = true;
     ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
   });
-   
+  
+  ESP_LOGD(TAG, "Model input dimensions: %dx%dx%d",
+           model_handler_.get_input_width(),
+           model_handler_.get_input_height(),
+           model_handler_.get_input_channels());
+  
+  // Initialize image processor with model dimensions
+  image_processor_ = std::make_unique<ImageProcessor>(ImageProcessorConfig{
+    camera_width_,
+    camera_height_,
+    model_handler_.get_input_width(),
+    model_handler_.get_input_height(),
+    pixel_format_
+  });
 }
 
 void MeterReaderTFLite::set_input_size(int width, int height) {
-  model_input_width_ = width;
-  model_input_height_ = height;
   if (image_processor_ && camera_width_ > 0 && camera_height_ > 0) {
     image_processor_ = std::make_unique<ImageProcessor>(ImageProcessorConfig{
       camera_width_,
       camera_height_,
-      model_input_width_,
-      model_input_height_,
+      width,
+      height,
       pixel_format_
     });
   }
@@ -60,12 +64,12 @@ void MeterReaderTFLite::set_camera_format(int width, int height, const std::stri
   camera_width_ = width;
   camera_height_ = height;
   pixel_format_ = pixel_format;
-  if (model_input_width_ > 0 && model_input_height_ > 0) {
+  if (image_processor_) {
     image_processor_ = std::make_unique<ImageProcessor>(ImageProcessorConfig{
       camera_width_,
       camera_height_,
-      model_input_width_,
-      model_input_height_,
+      model_handler_.get_input_width(),
+      model_handler_.get_input_height(),
       pixel_format_
     });
   }

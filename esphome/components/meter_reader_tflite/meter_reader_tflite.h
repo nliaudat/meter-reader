@@ -37,6 +37,10 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void set_value_sensor(sensor::Sensor *sensor);
   void set_crop_zones(const std::string &zones_json);
   void set_camera_format(int width, int height, const std::string &pixel_format);
+  
+  int get_model_input_width() const { return model_handler_.get_input_width(); }
+  int get_model_input_height() const { return model_handler_.get_input_height(); }
+  int get_model_input_channels() const { return model_handler_.get_input_channels(); } 
 
  protected:
   bool allocate_tensor_arena();
@@ -48,8 +52,11 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   // Configuration parameters
   int camera_width_{0};
   int camera_height_{0};
-  int model_input_width_{32};
-  int model_input_height_{32};
+  // int model_input_width_{32};
+  // int model_input_height_{32};
+ 
+ 
+  
   std::string pixel_format_{"RGB888"};
   float confidence_threshold_{0.7f};
   size_t tensor_arena_size_requested_{500 * 1024};

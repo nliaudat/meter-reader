@@ -9,7 +9,7 @@
 namespace esphome {
 namespace meter_reader_tflite {
 
-constexpr size_t MAX_OPERATORS = 90;
+constexpr size_t MAX_OPERATORS = 30;
 // static const char *const TAG = "ModelHandler";
 
 class ModelHandler {
@@ -20,9 +20,27 @@ class ModelHandler {
                   float* output_value, float* output_confidence);
   size_t get_arena_peak_bytes() const;
   
-  // Add these helper methods
+
   TfLiteTensor* input_tensor() const;
   TfLiteTensor* output_tensor() const;
+  
+    int get_input_width() const {
+        if (!interpreter_ || !input_tensor()) return 0;
+        if (input_tensor()->dims->size < 2) return 0;
+        return input_tensor()->dims->data[1];  // Width is typically dimension 1
+    }
+
+    int get_input_height() const {
+        if (!interpreter_ || !input_tensor()) return 0;
+        if (input_tensor()->dims->size < 3) return 0;
+        return input_tensor()->dims->data[2];  // Height is typically dimension 2
+    }
+
+    int get_input_channels() const {
+        if (!interpreter_ || !input_tensor()) return 0;
+        if (input_tensor()->dims->size < 4) return 0;
+        return input_tensor()->dims->data[3];  // Channels is typically dimension 3
+    }
 
  protected:
   const tflite::Model* tflite_model_{nullptr};
