@@ -40,9 +40,9 @@ class ImageProcessor {
       std::shared_ptr<camera::CameraImage> image,
       const std::vector<CropZone> &zones);
   
-  ProcessResult process_zone(
-      std::shared_ptr<camera::CameraImage> image,
-      const CropZone &zone);
+  // ProcessResult process_zone(
+      // std::shared_ptr<camera::CameraImage> image,
+      // const CropZone &zone);
 
  protected:
   ProcessResult crop_and_resize(

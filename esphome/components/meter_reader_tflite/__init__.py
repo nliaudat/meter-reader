@@ -14,8 +14,8 @@ AUTO_LOAD = ['sensor']
 
 CONF_CAMERA_ID = 'camera_id'
 CONF_TENSOR_ARENA_SIZE = 'tensor_arena_size'
-CONF_INPUT_WIDTH = 'input_width'
-CONF_INPUT_HEIGHT = 'input_height'
+CONF_MODEL_INPUT_WIDTH = 'model_input_width'
+CONF_MODEL_INPUT_HEIGHT = 'model_input_height'
 CONF_CONFIDENCE_THRESHOLD = 'confidence_threshold'
 CONF_RAW_DATA_ID = 'raw_data_id'
 
@@ -41,8 +41,8 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_MODEL): cv.file_,
     #cv.Required(CONF_CAMERA_ID): cv.use_id(camera.Camera),
     cv.Required(CONF_CAMERA_ID): cv.use_id(esp32_camera.ESP32Camera),
-    cv.Optional(CONF_INPUT_WIDTH, default=32): cv.positive_int,
-    cv.Optional(CONF_INPUT_HEIGHT, default=32): cv.positive_int,
+    cv.Optional(CONF_MODEL_INPUT_WIDTH, default=32): cv.positive_int,
+    cv.Optional(CONF_MODEL_INPUT_HEIGHT, default=32): cv.positive_int,
     cv.Optional(CONF_CONFIDENCE_THRESHOLD, default=0.7): cv.float_range(
         min=0.0, max=1.0
     ),
@@ -62,10 +62,10 @@ async def to_code(config):
         ref="1.3.3~1"
     )
     
-    # esp32.add_idf_component(
-        # name="espressif/esp_jpeg",
-        # ref="1.3.1"
-    # )
+    esp32.add_idf_component(
+        name="espressif/esp_jpeg",
+        ref="1.3.1"
+    )
     
     cg.add_build_flag("-DTF_LITE_STATIC_MEMORY")
     cg.add_build_flag("-DTF_LITE_DISABLE_X86_NEON")
@@ -92,7 +92,7 @@ async def to_code(config):
     prog_arr = cg.progmem_array(config[CONF_RAW_DATA_ID], rhs)
     
     cg.add(var.set_model(prog_arr, len(model_data)))
-    cg.add(var.set_input_size(config[CONF_INPUT_WIDTH], config[CONF_INPUT_HEIGHT]))
+    cg.add(var.set_input_size(config[CONF_MODEL_INPUT_WIDTH], config[CONF_MODEL_INPUT_HEIGHT]))
     cg.add(var.set_confidence_threshold(config[CONF_CONFIDENCE_THRESHOLD]))
     
     # The config value is already an integer thanks to the schema validator

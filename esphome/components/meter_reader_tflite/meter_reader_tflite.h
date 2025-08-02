@@ -29,7 +29,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void consume_data(size_t consumed) override;
   void return_image() override;
 
-  void set_input_size(int width, int height) {
+void set_input_size(int width, int height) {
     model_input_width_ = width;
     model_input_height_ = height;
     image_processor_ = ImageProcessor({
@@ -39,7 +39,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
       model_input_height_,
       pixel_format_
     });
-  }
+}
   
   void set_confidence_threshold(float threshold) { confidence_threshold_ = threshold; }
   void set_tensor_arena_size(size_t size_bytes) { tensor_arena_size_requested_ = size_bytes; }

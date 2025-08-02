@@ -3,7 +3,7 @@
 
 #include <memory>
 #include <cstdint>
-#include "esphome/core/component.h"
+#include "esp_heap_caps.h"
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -11,7 +11,14 @@ namespace meter_reader_tflite {
 class MemoryManager {
  public:
   struct AllocationResult {
-    std::unique_ptr<uint8_t[]> data;
+    struct HeapCapsDeleter {
+      void operator()(uint8_t* p) const {
+        if (p) {
+          heap_caps_free(p);
+        }
+      }
+    };
+    std::unique_ptr<uint8_t[], HeapCapsDeleter> data;
     size_t actual_size;
     
     operator bool() const { return static_cast<bool>(data); }

@@ -107,19 +107,19 @@ void MeterReaderTFLite::process_image() {
 }
 
 
-void MeterReaderTFLite::process_single_image(std::shared_ptr<camera::CameraImage> image) {
-  const uint8_t *data = image->get_data_buffer();
-  size_t length = image->get_data_length();
+// void MeterReaderTFLite::process_single_image(std::shared_ptr<camera::CameraImage> image) {
+  // const uint8_t *data = image->get_data_buffer();
+  // size_t length = image->get_data_length();
 
-  float value, confidence;
-  if (model_handler_.invoke_model(data, length, &value, &confidence)) {
-    ESP_LOGD(TAG, "Inference result: value=%.2f, confidence=%.2f", value, confidence);
+  // float value, confidence;
+  // if (model_handler_.invoke_model(data, length, &value, &confidence)) {
+    // ESP_LOGD(TAG, "Inference result: value=%.2f, confidence=%.2f", value, confidence);
     
-    if (confidence >= confidence_threshold_ && value_sensor_) {
-      value_sensor_->publish_state(value);
-    }
-  }
-}
+    // if (confidence >= confidence_threshold_ && value_sensor_) {
+      // value_sensor_->publish_state(value);
+    // }
+  // }
+// }
 
 
 bool MeterReaderTFLite::allocate_tensor_arena() {
