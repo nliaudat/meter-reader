@@ -26,12 +26,12 @@ ImageProcessor::ImageProcessor(const ImageProcessorConfig &config) : config_(con
              config_.pixel_format == "RAW") {
     bytes_per_pixel_ = 1;
   } else if (config_.pixel_format == "YUV420") {
-    bytes_per_pixel_ = 1; // YUV420 is more complex, but we'll treat it as grayscale for simplicity
+    bytes_per_pixel_ = 1;
   } else if (config_.pixel_format == "JPEG") {
-    bytes_per_pixel_ = 3; // JPEG will be decoded to RGB888
+    bytes_per_pixel_ = 3;
   } else {
     ESP_LOGE(TAG, "Unsupported pixel format: %s", config_.pixel_format.c_str());
-    bytes_per_pixel_ = 3; // Default to RGB888
+    bytes_per_pixel_ = 3;
   }
 }
 
@@ -42,8 +42,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
   std::vector<ProcessResult> results;
   
   if (zones.empty()) {
-    ESP_LOGE(TAG, "Empty zone, do not crop");
-    // Process full image if no zones specified
+    ESP_LOGD(TAG, "Processing full image");
     CropZone full_zone{0, 0, config_.camera_width, config_.camera_height};
     ProcessResult result;
     if (config_.pixel_format == "JPEG") {
@@ -65,9 +64,6 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
         }
         if (result.data) {
           results.push_back(std::move(result));
-        } else {
-          ESP_LOGE(TAG, "Failed to process zone [%d,%d,%d,%d]", 
-                  zone.x1, zone.y1, zone.x2, zone.y2);
         }
       }
     }
@@ -75,7 +71,6 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
   
   return results;
 }
-
 
 #ifdef USE_JPEG
 ImageProcessor::ProcessResult ImageProcessor::decode_and_process_jpeg(
@@ -96,11 +91,11 @@ ImageProcessor::ProcessResult ImageProcessor::decode_and_process_jpeg(
     return result;
   }
 
-  // First get image info to determine output buffer size
+  // Get image info first
   esp_jpeg_image_cfg_t jpeg_cfg = {
     .indata = const_cast<uint8_t*>(jpeg_data),
     .indata_size = jpeg_size,
-    .outbuf = nullptr,  // We don't need output buffer for info query
+    .outbuf = nullptr,
     .outbuf_size = 0,
     .out_format = JPEG_IMAGE_FORMAT_RGB888,
     .out_scale = JPEG_IMAGE_SCALE_0
@@ -113,36 +108,24 @@ ImageProcessor::ProcessResult ImageProcessor::decode_and_process_jpeg(
     return result;
   }
 
-  // Allocate output buffer for decoded image
-  const size_t output_size = config_.model_input_width * config_.model_input_height * 3;
-  result.data.reset(new uint8_t[output_size]);
-  result.size = output_size;
+  // Allocate buffer for decoded image
+  std::unique_ptr<uint8_t[]> decoded_data(new uint8_t[out_info.width * out_info.height * 3]);
 
-  // Setup for actual decoding
-  jpeg_cfg.outbuf = result.data.get();
-  jpeg_cfg.outbuf_size = output_size;
+  // Setup for decoding
+  jpeg_cfg.outbuf = decoded_data.get();
+  jpeg_cfg.outbuf_size = out_info.width * out_info.height * 3;
   jpeg_cfg.flags.swap_color_bytes = 1; // Convert BGR to RGB
 
   // Decode the image
   ret = esp_jpeg_decode(&jpeg_cfg, &out_info);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "JPEG decode failed: %s", esp_err_to_name(ret));
-    result.data.reset();
-    result.size = 0;
     return result;
   }
 
-  // Now crop and resize the decoded image
-  ProcessResult decoded_result = crop_and_resize_from_decoded(
-      result.data.get(), 
-      out_info.width, 
-      out_info.height, 
-      zone);
-  
-  return decoded_result;
+  return crop_and_resize_from_decoded(decoded_data.get(), out_info.width, out_info.height, zone);
 }
 #endif
-
 
 ImageProcessor::ProcessResult ImageProcessor::crop_and_resize_from_decoded(
     const uint8_t *decoded_data,
@@ -249,7 +232,7 @@ ImageProcessor::ProcessResult ImageProcessor::crop_and_resize(
         dst[dst_idx+1] = src[src_idx+1];  // UV components
       }
     }
-  } else { // GRAYSCALE, RAW, YUV420 (treated as grayscale)
+  } else { // GRAYSCALE, RAW, YUV420
     for (int y = 0; y < config_.model_input_height; y++) {
       for (int x = 0; x < config_.model_input_width; x++) {
         const int src_x = zone.x1 + static_cast<int>(x * x_ratio);

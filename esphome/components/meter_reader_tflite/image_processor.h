@@ -1,7 +1,7 @@
 #pragma once
 
 #include "esphome/components/camera/camera.h"
-#include "crop_zones.h" 
+#include "crop_zones.h"
 #include <memory>
 #include <vector>
 #include <string>
@@ -39,10 +39,6 @@ class ImageProcessor {
   std::vector<ProcessResult> process_image(
       std::shared_ptr<camera::CameraImage> image,
       const std::vector<CropZone> &zones);
-  
-  // ProcessResult process_zone(
-      // std::shared_ptr<camera::CameraImage> image,
-      // const CropZone &zone);
 
  protected:
   ProcessResult crop_and_resize(
@@ -53,19 +49,16 @@ class ImageProcessor {
       std::shared_ptr<camera::CameraImage> image,
       const CropZone &zone);
       
-  bool validate_zone(const CropZone &zone) const;
-
-  ImageProcessorConfig config_;
-  int bytes_per_pixel_;
-  
-
-protected:
   ProcessResult crop_and_resize_from_decoded(
       const uint8_t *decoded_data,
       int original_width,
       int original_height,
       const CropZone &zone);
-  
+
+  bool validate_zone(const CropZone &zone) const;
+
+  ImageProcessorConfig config_;
+  int bytes_per_pixel_;
 };
 
 }  // namespace meter_reader_tflite

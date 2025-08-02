@@ -29,31 +29,13 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void consume_data(size_t consumed) override;
   void return_image() override;
 
-void set_input_size(int width, int height) {
-    model_input_width_ = width;
-    model_input_height_ = height;
-    image_processor_ = ImageProcessor({
-      camera_width_,
-      camera_height_,
-      model_input_width_,
-      model_input_height_,
-      pixel_format_
-    });
-}
-  
-  void set_confidence_threshold(float threshold) { confidence_threshold_ = threshold; }
-  void set_tensor_arena_size(size_t size_bytes) { tensor_arena_size_requested_ = size_bytes; }
-  
-  void set_model(const uint8_t *model, size_t length) {
-    model_ = model;
-    model_length_ = length;
-  }
-
+  void set_input_size(int width, int height);
+  void set_confidence_threshold(float threshold);
+  void set_tensor_arena_size(size_t size_bytes);
+  void set_model(const uint8_t *model, size_t length);
   void set_camera(esp32_camera::ESP32Camera *camera);
-  void set_value_sensor(sensor::Sensor *sensor) { value_sensor_ = sensor; }
-  
-  void set_crop_zones(const std::string &zones_json) { crop_zone_handler_.parse_zones(zones_json); }
-  
+  void set_value_sensor(sensor::Sensor *sensor);
+  void set_crop_zones(const std::string &zones_json);
   void set_camera_format(int width, int height, const std::string &pixel_format);
 
  protected:
@@ -62,7 +44,6 @@ void set_input_size(int width, int height) {
   void report_memory_status();
   size_t get_arena_peak_bytes() const;
   void process_image();
-  void process_single_image(std::shared_ptr<camera::CameraImage> image);
 
   // Configuration parameters
   int camera_width_{0};
@@ -86,9 +67,7 @@ void set_input_size(int width, int height) {
   // Component instances
   MemoryManager memory_manager_;
   ModelHandler model_handler_;
-  ImageProcessor image_processor_{
-    {0, 0, model_input_width_, model_input_height_, pixel_format_}
-  };
+  std::unique_ptr<ImageProcessor> image_processor_;
   CropZoneHandler crop_zone_handler_;
   MemoryManager::AllocationResult tensor_arena_allocation_;
 };
