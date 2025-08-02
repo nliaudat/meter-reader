@@ -1,7 +1,8 @@
 #include "image_processor.h"
 #include "esp_log.h"
-// #include "jpeg_decoder.h"
-// #include "esphome/components/esp32_camera/esp32_camera.h" 
+#ifdef USE_JPEG
+#include "jpeg_decoder.h"
+#endif
 #include <cstring>
 
 namespace esphome {
@@ -41,7 +42,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
   std::vector<ProcessResult> results;
   
   if (zones.empty()) {
-	  ESP_LOGE(TAG, "Empty zone, do not crop");
+    ESP_LOGE(TAG, "Empty zone, do not crop");
     // Process full image if no zones specified
     CropZone full_zone{0, 0, config_.camera_width, config_.camera_height};
     ProcessResult result;
@@ -76,6 +77,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
 }
 
 
+#ifdef USE_JPEG
 ImageProcessor::ProcessResult ImageProcessor::decode_and_process_jpeg(
     std::shared_ptr<camera::CameraImage> image,
     const CropZone &zone) {
@@ -86,7 +88,6 @@ ImageProcessor::ProcessResult ImageProcessor::decode_and_process_jpeg(
     return result;
   }
 
-  // Get the JPEG data buffer
   const uint8_t *jpeg_data = image->get_data_buffer();
   size_t jpeg_size = image->get_data_length();
   
@@ -95,46 +96,85 @@ ImageProcessor::ProcessResult ImageProcessor::decode_and_process_jpeg(
     return result;
   }
 
-  // For ESPHome, we'll need to use a different approach since the camera component
-  // doesn't expose direct JPEG decoding. We'll implement a simple downscaling
-  // approach for JPEG images.
+  // First get image info to determine output buffer size
+  esp_jpeg_image_cfg_t jpeg_cfg = {
+    .indata = const_cast<uint8_t*>(jpeg_data),
+    .indata_size = jpeg_size,
+    .outbuf = nullptr,  // We don't need output buffer for info query
+    .outbuf_size = 0,
+    .out_format = JPEG_IMAGE_FORMAT_RGB888,
+    .out_scale = JPEG_IMAGE_SCALE_0
+  };
+
+  esp_jpeg_image_output_t out_info;
+  esp_err_t ret = esp_jpeg_get_image_info(&jpeg_cfg, &out_info);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to get JPEG info: %s", esp_err_to_name(ret));
+    return result;
+  }
+
+  // Allocate output buffer for decoded image
+  const size_t output_size = config_.model_input_width * config_.model_input_height * 3;
+  result.data.reset(new uint8_t[output_size]);
+  result.size = output_size;
+
+  // Setup for actual decoding
+  jpeg_cfg.outbuf = result.data.get();
+  jpeg_cfg.outbuf_size = output_size;
+  jpeg_cfg.flags.swap_color_bytes = 1; // Convert BGR to RGB
+
+  // Decode the image
+  ret = esp_jpeg_decode(&jpeg_cfg, &out_info);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "JPEG decode failed: %s", esp_err_to_name(ret));
+    result.data.reset();
+    result.size = 0;
+    return result;
+  }
+
+  // Now crop and resize the decoded image
+  ProcessResult decoded_result = crop_and_resize_from_decoded(
+      result.data.get(), 
+      out_info.width, 
+      out_info.height, 
+      zone);
   
-  // Allocate output buffer (we'll convert to RGB888)
+  return decoded_result;
+}
+#endif
+
+
+ImageProcessor::ProcessResult ImageProcessor::crop_and_resize_from_decoded(
+    const uint8_t *decoded_data,
+    int original_width,
+    int original_height,
+    const CropZone &zone) {
+  
+  ProcessResult result{nullptr, 0};
+  
   const size_t output_size = config_.model_input_width * config_.model_input_height * 3;
   result.data.reset(new uint8_t[output_size]);
   result.size = output_size;
   
-  // Simple approach: treat JPEG as grayscale for basic processing
-  // Note: This is a simplified approach - for full JPEG decoding you would need
-  // to integrate a proper JPEG decoder library
-  uint8_t *dst = result.data.get();
-  
   const float x_ratio = static_cast<float>(zone.x2 - zone.x1) / config_.model_input_width;
   const float y_ratio = static_cast<float>(zone.y2 - zone.y1) / config_.model_input_height;
 
-  // Simple downscaling (this won't properly decode JPEG, just demonstrates the structure)
   for (int y = 0; y < config_.model_input_height; y++) {
     for (int x = 0; x < config_.model_input_width; x++) {
       const int src_x = zone.x1 + static_cast<int>(x * x_ratio);
       const int src_y = zone.y1 + static_cast<int>(y * y_ratio);
       
-      // For demonstration, we'll just use the first byte of each MCU (Minimum Coded Unit)
-      // In a real implementation, you would properly decode the JPEG here
-      size_t src_idx = (src_y * config_.camera_width + src_x) % jpeg_size;
-      uint8_t val = jpeg_data[src_idx];
+      const size_t src_idx = (src_y * original_width + src_x) * 3;
+      const size_t dst_idx = (y * config_.model_input_width + x) * 3;
       
-      // Convert to RGB888 (grayscale)
-      size_t dst_idx = (y * config_.model_input_width + x) * 3;
-      dst[dst_idx] = val;     // R
-      dst[dst_idx+1] = val;   // G
-      dst[dst_idx+2] = val;   // B
+      result.data.get()[dst_idx] = decoded_data[src_idx];     // R
+      result.data.get()[dst_idx+1] = decoded_data[src_idx+1]; // G
+      result.data.get()[dst_idx+2] = decoded_data[src_idx+2]; // B
     }
   }
 
-  ESP_LOGW(TAG, "Basic JPEG processing complete (not full decoding)");
   return result;
 }
-
 
 bool ImageProcessor::validate_zone(const CropZone &zone) const {
   if (zone.x1 < 0 || zone.y1 < 0 || 

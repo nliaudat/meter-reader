@@ -57,6 +57,15 @@ class ImageProcessor {
 
   ImageProcessorConfig config_;
   int bytes_per_pixel_;
+  
+
+protected:
+  ProcessResult crop_and_resize_from_decoded(
+      const uint8_t *decoded_data,
+      int original_width,
+      int original_height,
+      const CropZone &zone);
+  
 };
 
 }  // namespace meter_reader_tflite
