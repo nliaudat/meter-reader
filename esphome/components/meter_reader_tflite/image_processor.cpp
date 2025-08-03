@@ -255,9 +255,17 @@ ImageProcessor::ProcessResult ImageProcessor::resize_image(
   ProcessResult result{nullptr, 0};
   const int model_width = get_model_input_width();
   const int model_height = get_model_input_height();
+  const int model_channels = get_model_input_channels();
   
   if (model_width <= 0 || model_height <= 0) {
     ESP_LOGE(TAG, "Invalid model dimensions: %dx%d - model not loaded?", model_width, model_height);
+    return result;
+  }
+  
+    // Verify channel count matches
+  if (src_channels != model_channels) {
+    ESP_LOGE(TAG, "Channel mismatch: input has %d, model expects %d",
+            src_channels, model_channels);
     return result;
   }
   

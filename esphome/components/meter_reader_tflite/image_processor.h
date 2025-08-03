@@ -43,6 +43,10 @@ class ImageProcessor {
     return model_handler_ ? model_handler_->get_input_height() : 0; 
   }
   
+  int get_model_input_channels() const { 
+    return model_handler_ ? model_handler_->get_input_channels() : 0; 
+  }
+  
   struct ProcessResult {
     std::unique_ptr<uint8_t[]> data;
     size_t size;
