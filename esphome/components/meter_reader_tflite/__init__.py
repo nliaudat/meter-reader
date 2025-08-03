@@ -7,6 +7,7 @@ from esphome.core import CORE, HexInt
 #from esphome.components import esp32, camera, sensor
 from esphome.components import esp32, sensor
 import esphome.components.esp32_camera as esp32_camera
+from esphome.cpp_generator import RawExpression
 
 CODEOWNERS = ["@nl"]
 DEPENDENCIES = ['esp32', 'camera']
@@ -18,6 +19,8 @@ CONF_MODEL_INPUT_WIDTH = 'model_input_width'
 CONF_MODEL_INPUT_HEIGHT = 'model_input_height'
 CONF_CONFIDENCE_THRESHOLD = 'confidence_threshold'
 CONF_RAW_DATA_ID = 'raw_data_id'
+CONF_DEBUG = 'debug'
+# CONF_DEBUG_IMAGE_PATH = 'debug_image_path'
 
 meter_reader_tflite_ns = cg.esphome_ns.namespace('meter_reader_tflite')
 MeterReaderTFLite = meter_reader_tflite_ns.class_('MeterReaderTFLite', cg.PollingComponent)
@@ -52,6 +55,7 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     cv.Optional(CONF_SENSOR): sensor.sensor_schema(accuracy_decimals=2),
     cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
+    cv.Optional(CONF_DEBUG, default=False): cv.boolean, 
 }).extend(cv.polling_component_schema('60s'))
 
 async def to_code(config):
@@ -116,3 +120,30 @@ async def to_code(config):
     
     # Set camera format
     cg.add(var.set_camera_format(width, height, pixel_format))
+    
+
+    if config[CONF_DEBUG]:
+        cg.add_define("DEBUG_METER_READER_TFLITE")
+        # Optionally expose the test method
+        cg.add(var.test_with_debug_image())
+        
+        # Get path to debug image
+        component_dir = os.path.dirname(os.path.abspath(__file__))
+        debug_image_path = os.path.join(component_dir, "debug.jpg")
+        
+        if not os.path.exists(debug_image_path):
+            raise cv.Invalid(f"Debug image not found at {debug_image_path}")
+        
+        # Read debug image
+        with open(debug_image_path, "rb") as f:
+            debug_image_data = f.read()
+        
+        # Create a unique ID for the debug image array
+        debug_image_id = f"{config[CONF_ID]}_debug_data"
+        
+        # Create the array declaration (using static storage)
+        cg.add_global(
+            cg.RawStatement(
+                f"static const uint8_t {debug_image_id}[] = {{{','.join(f'0x{x:02x}' for x in debug_image_data)}}};"
+            )
+        )

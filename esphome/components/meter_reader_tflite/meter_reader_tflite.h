@@ -41,6 +41,15 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   int get_model_input_width() const { return model_handler_.get_input_width(); }
   int get_model_input_height() const { return model_handler_.get_input_height(); }
   int get_model_input_channels() const { return model_handler_.get_input_channels(); } 
+  
+// #ifdef DEBUG_METER_READER_TFLITE
+  // void set_debug_image(std::shared_ptr<camera::CameraImage> image);
+// #endif
+
+#ifdef DEBUG_METER_READER_TFLITE
+  void set_debug_image(const uint8_t* data, size_t size);
+  void test_with_debug_image();
+#endif
 
  protected:
   bool allocate_tensor_arena();
@@ -77,7 +86,35 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   std::unique_ptr<ImageProcessor> image_processor_;
   CropZoneHandler crop_zone_handler_;
   MemoryManager::AllocationResult tensor_arena_allocation_;
+  
+// #ifdef DEBUG_METER_READER_TFLITE
+  // std::shared_ptr<camera::CameraImage> debug_image_;
+  // bool load_debug_image();
+// #endif
+
+#ifdef DEBUG_METER_READER_TFLITE
+  std::shared_ptr<camera::CameraImage> debug_image_;
+#endif
+
 };
+
+#ifdef DEBUG_METER_READER_TFLITE
+class DebugCameraImage : public camera::CameraImage {
+ public:
+  DebugCameraImage(const uint8_t* data, size_t size, int width, int height, const std::string& format)
+    : data_(data, data + size), width_(width), height_(height), format_(format) {}
+
+  uint8_t* get_data_buffer() override { return const_cast<uint8_t*>(data_.data()); }
+  size_t get_data_length() override { return data_.size(); }
+  bool was_requested_by(camera::CameraRequester requester) const override { return true; }
+  
+ private:
+  std::vector<uint8_t> data_;
+  int width_;
+  int height_;
+  std::string format_;
+};
+#endif
 
 }  // namespace meter_reader_tflite
 }  // namespace esphome

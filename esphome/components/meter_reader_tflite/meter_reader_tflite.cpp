@@ -226,5 +226,53 @@ void MeterReaderTFLite::loop() {
   // Nothing here; image capture is async via callback
 }
 
+
+// #ifdef DEBUG_METER_READER_TFLITE
+// void MeterReaderTFLite::set_debug_image(std::shared_ptr<camera::CameraImage> image) {
+  // debug_image_ = image;
+  // ESP_LOGD(TAG, "Debug image set (%zu bytes)", image->get_data_length());
+// }
+
+// bool MeterReaderTFLite::load_debug_image() {
+  // if (!debug_image_) {
+    // ESP_LOGE(TAG, "No debug image available");
+    // return false;
+  // }
+  
+  // ESP_LOGI(TAG, "Using debug image (%zu bytes)", debug_image_->get_data_length());
+  // return true;
+// }
+// #endif
+
+
+#ifdef DEBUG_METER_READER_TFLITE
+void MeterReaderTFLite::set_debug_image(const uint8_t* image_data, size_t image_size) {
+  // Copy data to RAM (remove if using PROGMEM)
+  std::unique_ptr<uint8_t[]> buffer(new uint8_t[image_size]);
+  memcpy(buffer.get(), image_data, image_size);
+  
+  debug_image_ = std::make_shared<DebugCameraImage>(
+    buffer.get(),
+    image_size,
+    camera_width_,
+    camera_height_,
+    pixel_format_
+  );
+  
+  ESP_LOGD(TAG, "Debug image set (%zu bytes)", image_size);
+}
+
+void MeterReaderTFLite::test_with_debug_image() {
+  if (!debug_image_) {
+    ESP_LOGE(TAG, "No debug image available");
+    return;
+  }
+  
+  ESP_LOGI(TAG, "Processing debug image");
+  set_image(debug_image_);
+  process_image();
+}
+#endif
+
 }  // namespace meter_reader_tflite
 }  // namespace esphome
