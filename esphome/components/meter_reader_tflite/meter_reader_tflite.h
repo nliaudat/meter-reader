@@ -49,6 +49,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
 #ifdef DEBUG_METER_READER_TFLITE
   void set_debug_image(const uint8_t* data, size_t size);
   void test_with_debug_image();
+  void set_debug_mode(bool debug_mode);
 #endif
 
  protected:
@@ -94,6 +95,13 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
 
 #ifdef DEBUG_METER_READER_TFLITE
   std::shared_ptr<camera::CameraImage> debug_image_;
+  bool debug_mode_ = false;
+  const std::vector<CropZone> debug_crop_zones_ = {
+    {80, 233, 116, 307}, {144, 235, 180, 307},
+    {202, 234, 238, 308}, {265, 233, 304, 306},
+    {328, 232, 367, 311}, {393, 231, 433, 310},
+    {460, 235, 499, 311}, {520, 235, 559, 342}
+  };
 #endif
 
 };

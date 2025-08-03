@@ -144,6 +144,12 @@ void MeterReaderTFLite::set_crop_zones(const std::string &zones_json) {
 }
 
 void MeterReaderTFLite::process_image() {
+	
+  if (debug_mode_ && !debug_image_) {
+    ESP_LOGE(TAG, "Debug mode enabled but no debug image available");
+    return;
+  }
+	
   if (!current_image_) {
     ESP_LOGE(TAG, "No image available for processing");
     return;
@@ -159,9 +165,16 @@ void MeterReaderTFLite::process_image() {
 
   ESP_LOGD(TAG, "Image data length: %zu bytes", current_image_->get_data_length());
 
+  // auto processed = image_processor_->process_image(
+    // current_image_,
+    // crop_zone_handler_.get_zones()
+  // );
+  
+  const auto& zones = debug_mode_ ? debug_crop_zones_ : crop_zone_handler_.get_zones();
+  
   auto processed = image_processor_->process_image(
-    current_image_,
-    crop_zone_handler_.get_zones()
+    debug_mode_ ? debug_image_ : current_image_,
+    zones
   );
 
   ESP_LOGD(TAG, "Processed %d image regions", processed.size());
@@ -246,6 +259,15 @@ void MeterReaderTFLite::loop() {
 
 
 #ifdef DEBUG_METER_READER_TFLITE
+
+void MeterReaderTFLite::set_debug_mode(bool debug_mode) {
+  debug_mode_ = debug_mode;
+  if (debug_mode_) {
+    ESP_LOGI(TAG, "Debug mode enabled - using static crop zones");
+  }
+}
+
+
 void MeterReaderTFLite::set_debug_image(const uint8_t* image_data, size_t image_size) {
   // Copy data to RAM (remove if using PROGMEM)
   std::unique_ptr<uint8_t[]> buffer(new uint8_t[image_size]);
