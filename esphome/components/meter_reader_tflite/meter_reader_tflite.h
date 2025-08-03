@@ -4,12 +4,15 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/esp32_camera/esp32_camera.h"
 #include "esphome/components/camera/camera.h"
-#include "tensorflow/lite/micro/micro_interpreter.h"
-#include "memory_manager.h"
+// #include "esphome/core/application.h" //for defer loading after boot
 #include "model_handler.h"
+#include "memory_manager.h"
 #include "image_processor.h"
 #include "crop_zones.h"
+#include "model_config.h"
 #include <memory>
+#include <vector>
+#include <string>
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -29,23 +32,19 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void consume_data(size_t consumed) override;
   void return_image() override;
 
-  void set_input_size(int width, int height);
-  void set_confidence_threshold(float threshold);
-  void set_tensor_arena_size(size_t size_bytes);
+  void set_confidence_threshold(float threshold) { confidence_threshold_ = threshold; }
+  void set_tensor_arena_size(size_t size_bytes) { tensor_arena_size_requested_ = size_bytes; }
   void set_model(const uint8_t *model, size_t length);
   void set_camera(esp32_camera::ESP32Camera *camera);
   void set_value_sensor(sensor::Sensor *sensor);
   void set_crop_zones(const std::string &zones_json);
   void set_camera_format(int width, int height, const std::string &pixel_format);
+  void set_model_config(const std::string &model_type);
   
   int get_model_input_width() const { return model_handler_.get_input_width(); }
   int get_model_input_height() const { return model_handler_.get_input_height(); }
   int get_model_input_channels() const { return model_handler_.get_input_channels(); } 
   
-// #ifdef DEBUG_METER_READER_TFLITE
-  // void set_debug_image(std::shared_ptr<camera::CameraImage> image);
-// #endif
-
 #ifdef DEBUG_METER_READER_TFLITE
   void set_debug_image(const uint8_t* data, size_t size);
   void test_with_debug_image();
@@ -58,18 +57,16 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void report_memory_status();
   size_t get_arena_peak_bytes() const;
   void process_image();
+  float combine_readings(const std::vector<float> &readings);
+  void preprocess_image(std::shared_ptr<camera::CameraImage> image);
 
   // Configuration parameters
   int camera_width_{0};
   int camera_height_{0};
-  // int model_input_width_{32};
-  // int model_input_height_{32};
- 
- 
-  
   std::string pixel_format_{"RGB888"};
   float confidence_threshold_{0.7f};
   size_t tensor_arena_size_requested_{500 * 1024};
+  std::string model_type_{"default"};
   
   // State variables
   size_t tensor_arena_size_actual_{0};
@@ -88,11 +85,6 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   CropZoneHandler crop_zone_handler_;
   MemoryManager::AllocationResult tensor_arena_allocation_;
   
-// #ifdef DEBUG_METER_READER_TFLITE
-  // std::shared_ptr<camera::CameraImage> debug_image_;
-  // bool load_debug_image();
-// #endif
-
 #ifdef DEBUG_METER_READER_TFLITE
   std::shared_ptr<camera::CameraImage> debug_image_;
   bool debug_mode_ = false;
@@ -103,8 +95,9 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
     {460, 235, 499, 311}, {520, 235, 559, 342}
   };
 #endif
-
+  
 };
+
 
 #ifdef DEBUG_METER_READER_TFLITE
 class DebugCameraImage : public camera::CameraImage {

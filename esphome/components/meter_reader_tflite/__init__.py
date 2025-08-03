@@ -15,8 +15,8 @@ AUTO_LOAD = ['sensor']
 
 CONF_CAMERA_ID = 'camera_id'
 CONF_TENSOR_ARENA_SIZE = 'tensor_arena_size'
-CONF_MODEL_INPUT_WIDTH = 'model_input_width'
-CONF_MODEL_INPUT_HEIGHT = 'model_input_height'
+# CONF_MODEL_INPUT_WIDTH = 'model_input_width'
+# CONF_MODEL_INPUT_HEIGHT = 'model_input_height'
 CONF_CONFIDENCE_THRESHOLD = 'confidence_threshold'
 CONF_RAW_DATA_ID = 'raw_data_id'
 CONF_DEBUG = 'debug'
@@ -152,4 +152,4 @@ async def to_code(config):
         )
         
         # Process debug image immediately
-        cg.add(var.test_with_debug_image())
+        # cg.add(var.test_with_debug_image())

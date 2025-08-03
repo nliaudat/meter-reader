@@ -10,8 +10,11 @@ namespace meter_reader_tflite {
 
 static const char *const TAG = "ImageProcessor";
 
-
-ImageProcessor::ImageProcessor(const ImageProcessorConfig &config) : config_(config) {
+// ImageProcessor::ImageProcessor(const ImageProcessorConfig &config) : config_(config) {
+ImageProcessor::ImageProcessor(const ImageProcessorConfig &config, 
+                             esphome::meter_reader_tflite::ModelHandler* model_handler)
+  : config_(config), model_handler_(model_handler) {
+	
   if (!config_.validate()) {
     ESP_LOGE(TAG, "Invalid image processor configuration");
   }
@@ -44,7 +47,7 @@ ImageProcessor::ImageProcessor(const ImageProcessorConfig &config) : config_(con
 
   ESP_LOGD(TAG, "ImageProcessor initialized:");
   ESP_LOGD(TAG, "  Camera resolution: %dx%d", config_.camera_width, config_.camera_height);
-  ESP_LOGD(TAG, "  Model input dimensions: %dx%d", config_.model_input_width, config_.model_input_height);
+  ESP_LOGD(TAG, "  Model input dimensions: %dx%d", get_model_input_width(), get_model_input_height());
   ESP_LOGD(TAG, "  Pixel format: %s (%d bytes per pixel)", 
            config_.pixel_format.c_str(), bytes_per_pixel_);
 }
@@ -52,12 +55,7 @@ ImageProcessor::ImageProcessor(const ImageProcessorConfig &config) : config_(con
 std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
     std::shared_ptr<camera::CameraImage> image,
     const std::vector<CropZone> &zones) {
-		
-    ESP_LOGD(TAG, "Processing image for model input %dx%dx%d",
-            config_.model_input_width,
-            config_.model_input_height,
-            bytes_per_pixel_);
-  
+    
   std::vector<ProcessResult> results;
   ESP_LOGD(TAG, "Starting image processing");
   ESP_LOGD(TAG, "Input image size: %zu bytes", image->get_data_length());
@@ -71,7 +69,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
       result = decode_and_process_jpeg(image, full_zone);
     } else {
       ESP_LOGD(TAG, "Processing direct pixel data");
-      result = crop_and_resize(image, full_zone);
+      result = process_zone(image, full_zone);
     }
     if (result.data) {
       ESP_LOGD(TAG, "Generated processed output (%zu bytes)", result.size);
@@ -95,7 +93,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
       if (config_.pixel_format == "JPEG") {
         result = decode_and_process_jpeg(image, zone);
       } else {
-        result = crop_and_resize(image, zone);
+        result = process_zone(image, zone);
       }
 
       if (result.data) {
@@ -174,44 +172,219 @@ ImageProcessor::ProcessResult ImageProcessor::decode_and_process_jpeg(
   }
 
   ESP_LOGD(TAG, "JPEG decoded successfully. Processing cropped region");
-  return crop_and_resize_from_decoded(decoded_data.get(), out_info.width, out_info.height, zone);
+  return process_zone_from_decoded(decoded_data.get(), out_info.width, out_info.height, zone);
 }
 #endif
 
-ImageProcessor::ProcessResult ImageProcessor::crop_and_resize_from_decoded(
+ImageProcessor::ProcessResult ImageProcessor::crop_image(
+    const uint8_t *src_data,
+    int src_width,
+    int src_height,
+    const CropZone &zone) {
+  
+  ProcessResult result{nullptr, 0};
+  const int crop_width = zone.x2 - zone.x1;
+  const int crop_height = zone.y2 - zone.y1;
+  const size_t cropped_size = crop_width * crop_height * bytes_per_pixel_;
+  
+  result.data.reset(new uint8_t[cropped_size]);
+  result.size = cropped_size;
+  
+  ESP_LOGD(TAG, "Cropping %dx%d region from %dx%d image",
+          crop_width, crop_height, src_width, src_height);
+
+  if (config_.pixel_format == "RGB888") {
+    for (int y = 0; y < crop_height; y++) {
+      for (int x = 0; x < crop_width; x++) {
+        const int src_x = zone.x1 + x;
+        const int src_y = zone.y1 + y;
+        const size_t src_idx = (src_y * src_width + src_x) * 3;
+        const size_t dst_idx = (y * crop_width + x) * 3;
+        
+        result.data[dst_idx] = src_data[src_idx];
+        result.data[dst_idx+1] = src_data[src_idx+1];
+        result.data[dst_idx+2] = src_data[src_idx+2];
+      }
+    }
+  } else if (config_.pixel_format == "RGB565" || 
+             config_.pixel_format == "RGB444" ||
+             config_.pixel_format == "RGB555") {
+    for (int y = 0; y < crop_height; y++) {
+      for (int x = 0; x < crop_width; x++) {
+        const int src_x = zone.x1 + x;
+        const int src_y = zone.y1 + y;
+        const size_t src_idx = (src_y * src_width + src_x) * 2;
+        const size_t dst_idx = (y * crop_width + x) * 2;
+        
+        result.data[dst_idx] = src_data[src_idx];
+        result.data[dst_idx+1] = src_data[src_idx+1];
+      }
+    }
+  } else if (config_.pixel_format == "YUV422") {
+    for (int y = 0; y < crop_height; y++) {
+      for (int x = 0; x < crop_width; x++) {
+        const int src_x = zone.x1 + x;
+        const int src_y = zone.y1 + y;
+        const size_t src_idx = (src_y * src_width + src_x) * 2;
+        const size_t dst_idx = (y * crop_width + x) * 2;
+        
+        result.data[dst_idx] = src_data[src_idx];       // Y component
+        result.data[dst_idx+1] = src_data[src_idx+1];  // UV components
+      }
+    }
+  } else { // GRAYSCALE, RAW, YUV420
+    for (int y = 0; y < crop_height; y++) {
+      for (int x = 0; x < crop_width; x++) {
+        const int src_x = zone.x1 + x;
+        const int src_y = zone.y1 + y;
+        result.data[y * crop_width + x] = src_data[src_y * src_width + src_x];
+      }
+    }
+  }
+
+  ESP_LOGD(TAG, "Image cropping completed successfully");
+  return result;
+}
+
+ImageProcessor::ProcessResult ImageProcessor::resize_image(
+    const uint8_t *src_data,
+    int src_width,
+    int src_height,
+    int src_channels) {
+  
+  ProcessResult result{nullptr, 0};
+  const int model_width = get_model_input_width();
+  const int model_height = get_model_input_height();
+  
+  if (model_width <= 0 || model_height <= 0) {
+    ESP_LOGE(TAG, "Invalid model dimensions: %dx%d - model not loaded?", model_width, model_height);
+    return result;
+  }
+  
+  // const size_t output_size = config_.model_input_width * config_.model_input_height * src_channels;
+  const size_t output_size = model_width * model_height * src_channels;
+    
+  result.data.reset(new uint8_t[output_size]);
+  result.size = output_size;
+
+  // ESP_LOGD(TAG, "Resizing from %dx%d to %dx%d",
+          // src_width, src_height,
+          // config_.model_input_width, config_.model_input_height);
+
+  // const float x_ratio = static_cast<float>(src_width) / config_.model_input_width;
+  // const float y_ratio = static_cast<float>(src_height) / config_.model_input_height;
+
+  // for (int y = 0; y < config_.model_input_height; y++) {
+    // for (int x = 0; x < config_.model_input_width; x++) {
+      // const int src_x = static_cast<int>(x * x_ratio);
+      // const int src_y = static_cast<int>(y * y_ratio);
+      
+      // const size_t src_idx = (src_y * src_width + src_x) * src_channels;
+      // const size_t dst_idx = (y * config_.model_input_width + x) * src_channels;
+      
+      // for (int c = 0; c < src_channels; c++) {
+        // result.data[dst_idx + c] = src_data[src_idx + c];
+      // }
+    // }
+  // }
+
+  // ESP_LOGD(TAG, "Image resizing complete");
+  // return result;
+  
+ ESP_LOGD(TAG, "Resizing from %dx%d to %dx%d",
+          src_width, src_height,
+          model_width, model_height);
+
+  const float x_ratio = static_cast<float>(src_width) / model_width;
+  const float y_ratio = static_cast<float>(src_height) / model_height;
+
+  for (int y = 0; y < model_height; y++) {
+    for (int x = 0; x < model_width; x++) {
+      const int src_x = static_cast<int>(x * x_ratio);
+      const int src_y = static_cast<int>(y * y_ratio);
+      
+      const size_t src_idx = (src_y * src_width + src_x) * src_channels;
+      const size_t dst_idx = (y * model_width + x) * src_channels;
+      
+      for (int c = 0; c < src_channels; c++) {
+        result.data[dst_idx + c] = src_data[src_idx + c];
+      }
+    }
+  }
+
+  ESP_LOGD(TAG, "Image resizing complete");
+  return result;
+  
+}
+
+ImageProcessor::ProcessResult ImageProcessor::process_zone(
+    std::shared_ptr<camera::CameraImage> image,
+    const CropZone &zone) {
+  
+  ProcessResult result{nullptr, 0};
+  ESP_LOGD(TAG, "Processing zone [%d,%d,%d,%d]", zone.x1, zone.y1, zone.x2, zone.y2);
+
+  if (!validate_zone(zone)) {
+    return result;
+  }
+
+  // First crop the image
+  auto cropped = crop_image(
+    image->get_data_buffer(),
+    config_.camera_width,
+    config_.camera_height,
+    zone
+  );
+
+  if (!cropped.data) {
+    ESP_LOGE(TAG, "Failed to crop image");
+    return result;
+  }
+
+  // Then resize the cropped image
+  const int crop_width = zone.x2 - zone.x1;
+  const int crop_height = zone.y2 - zone.y1;
+  result = resize_image(
+    cropped.data.get(),
+    crop_width,
+    crop_height,
+    bytes_per_pixel_
+  );
+
+  return result;
+}
+
+ImageProcessor::ProcessResult ImageProcessor::process_zone_from_decoded(
     const uint8_t *decoded_data,
     int original_width,
     int original_height,
     const CropZone &zone) {
   
   ProcessResult result{nullptr, 0};
-  const size_t output_size = config_.model_input_width * config_.model_input_height * 3;
-  result.data.reset(new uint8_t[output_size]);
-  result.size = output_size;
+  
+  // First crop the image
+  auto cropped = crop_image(
+    decoded_data,
+    original_width,
+    original_height,
+    zone
+  );
 
-  ESP_LOGD(TAG, "Resizing from %dx%d (cropped from %dx%d) to %dx%d",
-          zone.x2 - zone.x1, zone.y2 - zone.y1,
-          original_width, original_height,
-          config_.model_input_width, config_.model_input_height);
-
-  const float x_ratio = static_cast<float>(zone.x2 - zone.x1) / config_.model_input_width;
-  const float y_ratio = static_cast<float>(zone.y2 - zone.y1) / config_.model_input_height;
-
-  for (int y = 0; y < config_.model_input_height; y++) {
-    for (int x = 0; x < config_.model_input_width; x++) {
-      const int src_x = zone.x1 + static_cast<int>(x * x_ratio);
-      const int src_y = zone.y1 + static_cast<int>(y * y_ratio);
-      
-      const size_t src_idx = (src_y * original_width + src_x) * 3;
-      const size_t dst_idx = (y * config_.model_input_width + x) * 3;
-      
-      result.data.get()[dst_idx] = decoded_data[src_idx];     // R
-      result.data.get()[dst_idx+1] = decoded_data[src_idx+1]; // G
-      result.data.get()[dst_idx+2] = decoded_data[src_idx+2]; // B
-    }
+  if (!cropped.data) {
+    ESP_LOGE(TAG, "Failed to crop decoded image");
+    return result;
   }
 
-  ESP_LOGD(TAG, "Image resizing complete");
+  // Then resize the cropped image
+  const int crop_width = zone.x2 - zone.x1;
+  const int crop_height = zone.y2 - zone.y1;
+  result = resize_image(
+    cropped.data.get(),
+    crop_width,
+    crop_height,
+    3  // JPEG is always decoded to RGB888 (3 channels)
+  );
+
   return result;
 }
 
@@ -226,88 +399,6 @@ bool ImageProcessor::validate_zone(const CropZone &zone) const {
   }
   ESP_LOGD(TAG, "Valid crop zone [%d,%d,%d,%d]", zone.x1, zone.y1, zone.x2, zone.y2);
   return true;
-}
-
-ImageProcessor::ProcessResult ImageProcessor::crop_and_resize(
-    std::shared_ptr<camera::CameraImage> image,
-    const CropZone &zone) {
-  
-  ProcessResult result{nullptr, 0};
-  ESP_LOGD(TAG, "Direct crop/resize of %s image", config_.pixel_format.c_str());
-
-  if (!validate_zone(zone)) {
-    return result;
-  }
-
-  const int crop_width = zone.x2 - zone.x1;
-  const int crop_height = zone.y2 - zone.y1;
-  const size_t output_size = config_.model_input_width * config_.model_input_height * bytes_per_pixel_;
-  
-  result.data.reset(new uint8_t[output_size]);
-  result.size = output_size;
-  
-  const uint8_t *src = image->get_data_buffer();
-  uint8_t *dst = result.data.get();
-
-  const float x_ratio = static_cast<float>(crop_width) / config_.model_input_width;
-  const float y_ratio = static_cast<float>(crop_height) / config_.model_input_height;
-
-  ESP_LOGD(TAG, "Cropping %dx%d region and resizing to %dx%d (%s, %d bpp)",
-          crop_width, crop_height,
-          config_.model_input_width, config_.model_input_height,
-          config_.pixel_format.c_str(), bytes_per_pixel_);
-
-  if (config_.pixel_format == "RGB888") {
-    for (int y = 0; y < config_.model_input_height; y++) {
-      for (int x = 0; x < config_.model_input_width; x++) {
-        const int src_x = zone.x1 + static_cast<int>(x * x_ratio);
-        const int src_y = zone.y1 + static_cast<int>(y * y_ratio);
-        const size_t src_idx = (src_y * config_.camera_width + src_x) * 3;
-        const size_t dst_idx = (y * config_.model_input_width + x) * 3;
-        
-        dst[dst_idx] = src[src_idx];
-        dst[dst_idx+1] = src[src_idx+1];
-        dst[dst_idx+2] = src[src_idx+2];
-      }
-    }
-  } else if (config_.pixel_format == "RGB565" || 
-             config_.pixel_format == "RGB444" ||
-             config_.pixel_format == "RGB555") {
-    for (int y = 0; y < config_.model_input_height; y++) {
-      for (int x = 0; x < config_.model_input_width; x++) {
-        const int src_x = zone.x1 + static_cast<int>(x * x_ratio);
-        const int src_y = zone.y1 + static_cast<int>(y * y_ratio);
-        const size_t src_idx = (src_y * config_.camera_width + src_x) * 2;
-        const size_t dst_idx = (y * config_.model_input_width + x) * 2;
-        
-        dst[dst_idx] = src[src_idx];
-        dst[dst_idx+1] = src[src_idx+1];
-      }
-    }
-  } else if (config_.pixel_format == "YUV422") {
-    for (int y = 0; y < config_.model_input_height; y++) {
-      for (int x = 0; x < config_.model_input_width; x++) {
-        const int src_x = zone.x1 + static_cast<int>(x * x_ratio);
-        const int src_y = zone.y1 + static_cast<int>(y * y_ratio);
-        const size_t src_idx = (src_y * config_.camera_width + src_x) * 2;
-        const size_t dst_idx = (y * config_.model_input_width + x) * 2;
-        
-        dst[dst_idx] = src[src_idx];       // Y component
-        dst[dst_idx+1] = src[src_idx+1];  // UV components
-      }
-    }
-  } else { // GRAYSCALE, RAW, YUV420
-    for (int y = 0; y < config_.model_input_height; y++) {
-      for (int x = 0; x < config_.model_input_width; x++) {
-        const int src_x = zone.x1 + static_cast<int>(x * x_ratio);
-        const int src_y = zone.y1 + static_cast<int>(y * y_ratio);
-        dst[y * config_.model_input_width + x] = src[src_y * config_.camera_width + src_x];
-      }
-    }
-  }
-
-  ESP_LOGD(TAG, "Direct crop/resize completed successfully");
-  return result;
 }
 
 }  // namespace meter_reader_tflite
