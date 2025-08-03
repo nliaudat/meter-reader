@@ -10,6 +10,7 @@
 #include "image_processor.h"
 #include "crop_zones.h"
 #include "model_config.h"
+// #include "debug_utils.h"
 #include <memory>
 #include <vector>
 #include <string>
@@ -40,6 +41,10 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void set_crop_zones(const std::string &zones_json);
   void set_camera_format(int width, int height, const std::string &pixel_format);
   void set_model_config(const std::string &model_type);
+  // void print_debug_info() {
+    // DebugUtils::print_debug_info(*this);
+  // }
+  void print_debug_info();
   
   int get_model_input_width() const { return model_handler_.get_input_width(); }
   int get_model_input_height() const { return model_handler_.get_input_height(); }
@@ -77,6 +82,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   size_t model_length_{0};
   sensor::Sensor *value_sensor_{nullptr};
   esp32_camera::ESP32Camera *camera_{nullptr};
+  bool debug_mode_ = true;
 
   // Component instances
   MemoryManager memory_manager_;
@@ -85,10 +91,11 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   CropZoneHandler crop_zone_handler_;
   MemoryManager::AllocationResult tensor_arena_allocation_;
   
-#ifdef DEBUG_METER_READER_TFLITE
   std::shared_ptr<camera::CameraImage> debug_image_;
-  bool debug_mode_ = false;
-  const std::vector<CropZone> debug_crop_zones_ = {
+  
+#ifdef DEBUG_METER_READER_TFLITE
+  // std::shared_ptr<camera::CameraImage> debug_image_;
+    const std::vector<CropZone> debug_crop_zones_ = {
     {80, 233, 116, 307}, {144, 235, 180, 307},
     {202, 234, 238, 308}, {265, 233, 304, 306},
     {328, 232, 367, 311}, {393, 231, 433, 310},

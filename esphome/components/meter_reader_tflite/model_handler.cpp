@@ -41,6 +41,7 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
       tensor_arena,
       tensor_arena_size);
 
+
   if (interpreter_->AllocateTensors() != kTfLiteOk) {
     ESP_LOGE(TAG, "Failed to allocate tensors");
     return false;
@@ -147,6 +148,12 @@ float ModelHandler::process_output(const float* output_data) const {
 
 bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
                               float* output_value, float* output_confidence) {
+								  
+
+    // Resize input tensor dynamically
+    // interpreter_->ResizeInputTensor(0, {1, 80, 32, 3}); // 3 channels
+    // interpreter_->AllocateTensors();
+
   if (!interpreter_) {
     ESP_LOGE(TAG, "Interpreter not initialized");
     return false;
@@ -176,10 +183,6 @@ bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
           input->dims->data[3]);
   ESP_LOGD(TAG, "Provided input size: %zu bytes", input_size);
   
-    // if (input->bytes != input_size) {
-    // ESP_LOGE(TAG, "Input tensor size mismatch (%d != %zu)", input->bytes, input_size);
-    // return false;
-  // }
   
     if (!input || input->bytes != input_size) {
     ESP_LOGE(TAG, "Input tensor size mismatch (%d != %zu)", input->bytes, input_size);
