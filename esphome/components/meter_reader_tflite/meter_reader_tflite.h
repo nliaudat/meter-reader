@@ -36,10 +36,10 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void set_confidence_threshold(float threshold) { confidence_threshold_ = threshold; }
   void set_tensor_arena_size(size_t size_bytes) { tensor_arena_size_requested_ = size_bytes; }
   void set_model(const uint8_t *model, size_t length);
-  void set_camera(esp32_camera::ESP32Camera *camera);
+  void get_camera_image(esp32_camera::ESP32Camera *camera);
   void set_value_sensor(sensor::Sensor *sensor);
   void set_crop_zones(const std::string &zones_json);
-  void set_camera_format(int width, int height, const std::string &pixel_format);
+  void set_camera_image_format(int width, int height, const std::string &pixel_format);
   void set_model_config(const std::string &model_type);
   // void print_debug_info() {
     // DebugUtils::print_debug_info(*this);
@@ -50,20 +50,20 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   int get_model_input_height() const { return model_handler_.get_input_height(); }
   int get_model_input_channels() const { return model_handler_.get_input_channels(); } 
   
-#ifdef DEBUG_METER_READER_TFLITE
+/* #ifdef DEBUG_METER_READER_TFLITE
   void set_debug_image(const uint8_t* data, size_t size);
   void test_with_debug_image();
   void set_debug_mode(bool debug_mode);
-#endif
+#endif */
 
  protected:
   bool allocate_tensor_arena();
   bool load_model();
   void report_memory_status();
   size_t get_arena_peak_bytes() const;
-  void process_image();
+  void process_full_image();
   float combine_readings(const std::vector<float> &readings);
-  void preprocess_image(std::shared_ptr<camera::CameraImage> image);
+  // void preprocess_image(std::shared_ptr<camera::CameraImage> image);
 
   // Configuration parameters
   int camera_width_{0};
@@ -82,7 +82,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   size_t model_length_{0};
   sensor::Sensor *value_sensor_{nullptr};
   esp32_camera::ESP32Camera *camera_{nullptr};
-  bool debug_mode_ = true;
+  bool debug_mode_ = false;
 
   // Component instances
   MemoryManager memory_manager_;
@@ -93,7 +93,9 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   
   std::shared_ptr<camera::CameraImage> debug_image_;
   
-#ifdef DEBUG_METER_READER_TFLITE
+  bool is_processing_image_ = false; // Todo : better if std::atomic<bool> is_processing_image_{false};
+  
+/* #ifdef DEBUG_METER_READER_TFLITE
   // std::shared_ptr<camera::CameraImage> debug_image_;
     const std::vector<CropZone> debug_crop_zones_ = {
     {80, 233, 116, 307}, {144, 235, 180, 307},
@@ -101,12 +103,12 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
     {328, 232, 367, 311}, {393, 231, 433, 310},
     {460, 235, 499, 311}, {520, 235, 559, 342}
   };
-#endif
+#endif */
   
 };
 
 
-#ifdef DEBUG_METER_READER_TFLITE
+/* #ifdef DEBUG_METER_READER_TFLITE
 class DebugCameraImage : public camera::CameraImage {
  public:
   DebugCameraImage(const uint8_t* data, size_t size, int width, int height, const std::string& format)
@@ -122,7 +124,7 @@ class DebugCameraImage : public camera::CameraImage {
   int height_;
   std::string format_;
 };
-#endif
+#endif */
 
 }  // namespace meter_reader_tflite
 }  // namespace esphome

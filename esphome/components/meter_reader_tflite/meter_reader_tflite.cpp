@@ -14,8 +14,25 @@ void MeterReaderTFLite::setup() {
     mark_failed();
     return;
   }
+  
+  if (!camera_) {
+    ESP_LOGE(TAG, "No camera configured!");
+    mark_failed();
+    return;
+  }
+  
+  // Initialize camera first
+  // if (camera_) {
+    // camera_->init(); // Ensure camera is initialized
+    // ESP_LOGI(TAG, "Camera initialized");
+  // } else {
+    // ESP_LOGE(TAG, "No camera configured!");
+    // mark_failed();
+    // return;
+  // }
 
-  ESP_LOGI(TAG, "Model loading delayed for 10 seconds ...");
+  ESP_LOGI(TAG, "Camera is ready, delaying model loading...");
+  // ESP_LOGI(TAG, "Model loading delayed for 10 seconds ...");
   // Delay model loading by 10 sec
   this->set_timeout(10000, [this]() { //10 sec
     if (!this->load_model()) {
@@ -25,7 +42,7 @@ void MeterReaderTFLite::setup() {
     }
     this->model_loaded_ = true;
 	
-#ifdef DEBUG_METER_READER_TFLITE
+/* #ifdef DEBUG_METER_READER_TFLITE
     if (debug_mode_) {
         
         // Override for debug
@@ -34,7 +51,7 @@ void MeterReaderTFLite::setup() {
         
         ESP_LOGD(TAG, "Debug mode - Using fixed image dimensions 640x480");
     }
-#endif
+#endif */
     
 	ESP_LOGI(TAG, "Setting up Image Processor ...");
     // Initialize image processor AFTER model is loaded
@@ -49,14 +66,14 @@ void MeterReaderTFLite::setup() {
     
     ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
 
-#ifdef DEBUG_METER_READER_TFLITE    
+/* #ifdef DEBUG_METER_READER_TFLITE    
     // Process debug image if in debug mode
     if (debug_mode_ && debug_image_) {
       ESP_LOGI(TAG, "Processing debug image after model load");
       set_image(debug_image_);
-      process_image();
+      process_full_image();
     }
-#endif
+#endif */
 	
   });
 }
@@ -67,7 +84,7 @@ void MeterReaderTFLite::set_model(const uint8_t *model, size_t length) {
   ESP_LOGD(TAG, "Model set: %zu bytes", length);
 }
 
-void MeterReaderTFLite::set_camera_format(int width, int height, const std::string &pixel_format) {
+void MeterReaderTFLite::set_camera_image_format(int width, int height, const std::string &pixel_format) {
   camera_width_ = width;
   camera_height_ = height;
   pixel_format_ = pixel_format;
@@ -86,13 +103,71 @@ void MeterReaderTFLite::set_camera_format(int width, int height, const std::stri
   }
 }
 
-void MeterReaderTFLite::set_camera(esp32_camera::ESP32Camera *camera) {
+/* void MeterReaderTFLite::get_camera_image(esp32_camera::ESP32Camera *camera) {
   camera_ = camera;
   camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
+	
+    if (debug_mode_) {
+        ESP_LOGD(TAG, "Debug mode active - ignoring live camera image");
+        return;
+    }	
+	  
+    ESP_LOGD(TAG, "New camera image received (%zu bytes)", image->get_data_length());
+    
+    // Validate image
+    if (!image || image->get_data_length() == 0) {
+      ESP_LOGE(TAG, "Received invalid image");
+      return;
+    }
+
+    // Check if we're still processing previous image
+    if (this->current_image_) {
+      ESP_LOGW(TAG, "Still processing previous image - dropping frame");
+      return;
+    }
+
+    // Process the new image
     this->set_image(image);
-    this->process_image();
+    this->process_full_image();
+    
+    // Always clean up when done
+    this->return_image();
   });
   ESP_LOGD(TAG, "Camera callback registered");
+} */
+
+
+/* void MeterReaderTFLite::get_camera_image(esp32_camera::ESP32Camera *camera) {
+    camera_ = camera;
+    camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
+        // Just store the image, don't process it here. It's done by update() at interval
+        if (!debug_mode_) {  // Skip in debug mode
+            this->set_image(image);
+        }
+    });
+} */
+
+
+
+// void MeterReaderTFLite::get_camera_image(esp32_camera::ESP32Camera *camera) {
+  // camera_ = camera;
+  // camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
+    // this->set_image(image);
+    ////this->process_full_image();
+  // });
+  // ESP_LOGD(TAG, "Camera callback registered");
+// }
+
+void MeterReaderTFLite::get_camera_image(esp32_camera::ESP32Camera *camera) {
+  camera_ = camera;
+  camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
+    // Only store image if we're not currently processing and need a new one
+    if (!current_image_) {
+      current_image_ = image;
+    }
+    // Else: let the frame drop (camera continues streaming)
+  });
+
 }
 
 void MeterReaderTFLite::set_value_sensor(sensor::Sensor *sensor) {
@@ -126,31 +201,56 @@ void MeterReaderTFLite::consume_data(size_t consumed) {
 }
 
 void MeterReaderTFLite::return_image() {
-  current_image_.reset();
-  image_offset_ = 0;
+    current_image_.reset();
+    image_offset_ = 0;
+    ESP_LOGD(TAG, "Image processing complete - resources released");
 }
 
 void MeterReaderTFLite::update() {
 	
-#ifdef DEBUG_METER_READER_TFLITE
+// update() called (every 60s) [meter_reader_tflite:  update_interval: 60s]
+
+	
+/* #ifdef DEBUG_METER_READER_TFLITE
   if (this->debug_mode_) {
     ESP_LOGD(TAG, "Skipping update() because debug_mode is active");
     return;
   }
-#endif
+#endif */
 
-  if (!model_loaded_) {
-    ESP_LOGW(TAG, "Model not loaded, skipping update");
-    return;
-  }
+    if (debug_mode_) {
+        ESP_LOGD(TAG, "Debug mode active - skipping camera update");
+        return;
+    }
 
-  if (!camera_) {
-    ESP_LOGE(TAG, "Camera not configured");
-    return;
-  }
+    if (!model_loaded_) {
+        ESP_LOGW(TAG, "Model not loaded, skipping update");
+        return;
+    }
 
-  ESP_LOGD(TAG, "Requesting new image from camera");
-  camera_->request_image(camera::IDLE);
+    if (!camera_) {
+        ESP_LOGE(TAG, "Camera not configured");
+        return;
+    }
+	
+	
+	  if (!current_image_) {
+		// No image waiting - request a fresh one
+		ESP_LOGD(TAG, "Requesting new image from camera async");
+		//Non-blocking: request_image(camera::IDLE) is asynchronous and doesn't block the camera flow
+		// camera_->request_image(camera::IDLE); // request_image() is asynchronous and doesn't return an image directly - it triggers the callback you set up in get_camera_image()
+		camera_->request_image(camera::IDLE);
+		return;
+	  }
+	
+	if (current_image_) {
+        ESP_LOGD(TAG, "Processing captured image");
+		//this->set_timeout(1000, [this]() { // 1-second delay
+        process_full_image();
+        return_image();  // Clear after processing
+    }
+	
+  
 }
 
 void MeterReaderTFLite::set_model_config(const std::string &model_identifier) {
@@ -212,35 +312,58 @@ bool MeterReaderTFLite::load_model() {
   return true;
 }
 
-void MeterReaderTFLite::process_image() {
+
+
+
+void MeterReaderTFLite::process_full_image() {
 	
-   if (!model_loaded_) {
-        ESP_LOGE(TAG, "Model not loaded");
-        return;
-   }
-
-
-// #ifdef DEBUG_METER_READER_TFLITE    
-  if (debug_mode_ && !debug_image_) {
-    ESP_LOGE(TAG, "Debug mode enabled but no debug image available");
+  if (is_processing_image_) {
+	  ESP_LOGD(TAG, "process_full_image already running, skipping invoke");
+	  return;
+  }
+    is_processing_image_ = true;
+	
+  if (!model_loaded_) {
+    ESP_LOGE(TAG, "Model not loaded");
     return;
   }
-// #endif
+
+/* #ifdef DEBUG_METER_READER_TFLITE
+  if (debug_mode_) {
+    if (!debug_image_) {
+      ESP_LOGE(TAG, "Debug mode enabled but no debug image available");
+      return;
+    }
+    ESP_LOGD(TAG, "Processing debug image");
+    current_image_ = debug_image_; // Use debug image as current image
+  }
+#endif */
+
+  if (!current_image_) {
+    ESP_LOGE(TAG, "No image available");
+    return;
+  }
+
 	
-    auto image_to_process = debug_mode_ ? debug_image_ : current_image_;
-    if (!image_to_process) {
-        ESP_LOGE(TAG, "No %s image available", debug_mode_ ? "debug" : "camera");
-        return;
+
+    std::shared_ptr<camera::CameraImage> image_to_process;
+    
+    if (debug_mode_) {
+        if (!debug_image_) {
+            ESP_LOGE(TAG, "Debug mode enabled but no debug image available");
+            return;
+        }
+        image_to_process = debug_image_;
+        ESP_LOGD(TAG, "Processing debug image");
+    } else {
+        if (!current_image_) {
+            ESP_LOGE(TAG, "No camera image available");
+            return;
+        }
+        image_to_process = current_image_;
+        ESP_LOGD(TAG, "Processing camera image");
     }
 	
-    // Verify image dimensions match expected
-    // if ((image_to_process->get_width() != camera_width_) || 
-        // (image_to_process->get_height() != camera_height_)) {
-        // ESP_LOGE(TAG, "Image dimensions %dx%d don't match expected %dx%d",
-                // image_to_process->get_width(), image_to_process->get_height(),
-                // camera_width_, camera_height_);
-        // return;
-    // }
 
   if (!image_processor_) {
     ESP_LOGE(TAG, "Image processor not initialized");
@@ -253,41 +376,47 @@ void MeterReaderTFLite::process_image() {
 
   ESP_LOGD(TAG, "Image data length: %zu bytes", current_image_->get_data_length());
 
-#ifdef DEBUG_METER_READER_TFLITE
-  // const auto& zones = crop_zone_handler_.get_zones();  
-  // const auto& zones = debug_mode_ ? debug_crop_zones_ : crop_zone_handler_.get_zones();
+/* #ifdef DEBUG_METER_READER_TFLITE
+
   const auto& zones = debug_mode_ && !debug_crop_zones_.empty() 
                   ? debug_crop_zones_ 
                   : crop_zone_handler_.get_zones();
-#else
-	const auto& zones = crop_zone_handler_.get_zones(); 
-#endif	
+#else */
+	const auto& given_zones = crop_zone_handler_.get_zones(); 
+/* #endif	 */
 				  
   
-  if (zones.empty()) {
-    ESP_LOGW(TAG, "No crop zones defined");
-    return;
-  }
+  
+  std::vector<CropZone> zones_to_use;
+    
+    if (given_zones.empty()) {
+        ESP_LOGW(TAG, "No crop zones defined - processing full image");
+        zones_to_use.push_back({0, 0, camera_width_, camera_height_});
+    } else {
+        zones_to_use = given_zones; // Copy existing zones
+    }
+  
+  
+  // if (zones.empty()) {
+    // ESP_LOGW(TAG, "No crop zones defined - setting to full image");
+	// zones = {{0, camera_width_, 0, camera_height_}};
+    //return;
+  // }
 
 
-	// ESP_LOGD(TAG, "Processing %s image (%dx%d) with %zu zones",
-			// debug_mode_ ? "debug" : "camera",
-			// image_to_process->get_width(),
-			// image_to_process->get_height(),
-			// zones.size());
-		
-  // auto processed = image_processor_->process_image(current_image_, zones);
-  auto processed = image_processor_->process_image(
+
+
+  auto processed_splited_zones = image_processor_->split_image_in_zone(
     debug_mode_ ? debug_image_ : current_image_,
-    zones
+    zones_to_use
   ); 
   
-  ESP_LOGD(TAG, "Processed %d image regions", processed.size());
+  ESP_LOGD(TAG, "Splited zones %d processed in image regions", processed_splited_zones.size());
   
   std::vector<float> readings;
   std::vector<float> confidences;
 
-  for (auto& result : processed) {
+  for (auto& result : processed_splited_zones) {
     float value, confidence;
     if (model_handler_.invoke_model(result.data.get(), result.size, &value, &confidence)) {
       readings.push_back(value);
@@ -305,7 +434,9 @@ void MeterReaderTFLite::process_image() {
   }
   
 
-  return_image();
+  // return_image();
+  
+  is_processing_image_ = false;
 }
 
 float MeterReaderTFLite::combine_readings(const std::vector<float> &readings) {
@@ -358,7 +489,7 @@ void MeterReaderTFLite::loop() {
 
 
 
-
+/* 
 #ifdef DEBUG_METER_READER_TFLITE
 
 void MeterReaderTFLite::set_debug_mode(bool debug_mode) {
@@ -389,7 +520,7 @@ void MeterReaderTFLite::set_debug_mode(bool debug_mode) {
             // if (debug_image_) {
                 // ESP_LOGI(TAG, "Processing debug image after model load");
                 // set_image(debug_image_);
-                // process_image();
+                // process_full_image();
             // }
         // });
     // }
@@ -402,15 +533,10 @@ void MeterReaderTFLite::set_debug_image(const uint8_t* image_data, size_t image_
         return;
     }
 	
-	// Calculate expected size based on format
-    // size_t expected_size = 640 * 480 * bytes_per_pixel_for_format(pixel_format_);
-    // if (image_size < expected_size) {
-        // ESP_LOGW(TAG, "Debug image size %zu may be too small for %dx%d %s format",
-                // image_size, 640, 480, pixel_format_.c_str());
-    // }
 	
-    std::unique_ptr<uint8_t[]> buffer(new uint8_t[image_size]);
-    memcpy(buffer.get(), image_data, image_size);
+	//disabled 04.08.2025
+    // std::unique_ptr<uint8_t[]> buffer(new uint8_t[image_size]);
+    // memcpy(buffer.get(), image_data, image_size);
     
 	
     debug_image_ = std::make_shared<DebugCameraImage>(
@@ -422,13 +548,12 @@ void MeterReaderTFLite::set_debug_image(const uint8_t* image_data, size_t image_
     );
     
     ESP_LOGD(TAG, "Debug image set (%zu bytes)", image_size);
-    
+	
+	ESP_LOGD(TAG, "First 10 bytes of debug image: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+         image_data[0], image_data[1], image_data[2], image_data[3], image_data[4],
+         image_data[5], image_data[6], image_data[7], image_data[8], image_data[9]);
+   
 
-    // if (debug_mode_ && model_loaded_) {
-        // ESP_LOGI(TAG, "Processing newly set debug image");
-        // set_image(debug_image_);
-        // process_image();
-    // }
 }
 
 void MeterReaderTFLite::test_with_debug_image() {
@@ -438,7 +563,7 @@ void MeterReaderTFLite::test_with_debug_image() {
     }
     
     if (!debug_image_) {
-        ESP_LOGE(TAG, "No debug image available");
+        ESP_LOGE(TAG, "DEBUG mode : No debug image available");
         return;
     }
     
@@ -449,7 +574,7 @@ void MeterReaderTFLite::test_with_debug_image() {
     
     ESP_LOGI(TAG, "Processing debug image");
     set_image(debug_image_);
-    process_image();
+    process_full_image();
 }
 
 
@@ -462,7 +587,7 @@ void MeterReaderTFLite::test_with_debug_image() {
 
 
 #endif
-
+ */
 
 void MeterReaderTFLite::print_debug_info() {
     ESP_LOGI(TAG, "══════════════ DEBUG INFORMATION ══════════════");
@@ -501,13 +626,13 @@ void MeterReaderTFLite::print_debug_info() {
     ESP_LOGI(TAG, "┌──────────────────────────────────────────────┐");
     ESP_LOGI(TAG, "│              CROP ZONE STATUS                │");
     ESP_LOGI(TAG, "├──────────────────────────────────────────────┤");
-#ifdef DEBUG_METER_READER_TFLITE
+/* #ifdef DEBUG_METER_READER_TFLITE
   const auto& active_zones = debug_mode_ && !debug_crop_zones_.empty() 
                   ? debug_crop_zones_ 
                   : crop_zone_handler_.get_zones();
-#else
+#else */
 	const auto& active_zones = crop_zone_handler_.get_zones(); 
-#endif	
+/* #endif	 */
     ESP_LOGI(TAG, "│ Active Zones:       %-23zu │", active_zones.size());
     
     for (size_t i = 0; i < active_zones.size(); i++) {

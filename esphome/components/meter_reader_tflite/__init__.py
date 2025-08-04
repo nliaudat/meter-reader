@@ -85,7 +85,7 @@ async def to_code(config):
     await cg.register_component(var, config)
 
     cam = await cg.get_variable(config[CONF_CAMERA_ID])
-    cg.add(var.set_camera(cam))
+    cg.add(var.get_camera_image(cam)) #set camera
 
     if CONF_SENSOR in config:
         sens = await sensor.new_sensor(config[CONF_SENSOR])
@@ -119,37 +119,39 @@ async def to_code(config):
     pixel_format = CORE.config['substitutions'].get('camera_pixel_format', 'RGB888')
     
     # Set camera format
-    cg.add(var.set_camera_format(width, height, pixel_format))
+    cg.add(var.set_camera_image_format(width, height, pixel_format))
     
 
-    if config[CONF_DEBUG]:
-        cg.add_define("DEBUG_METER_READER_TFLITE")
-        cg.add(var.set_debug_mode(True))
+    # if config.get(CONF_DEBUG, False): # Default to False if not specified
+        # cg.add_define("DEBUG_METER_READER_TFLITE")
+        # cg.add(var.set_debug_mode(True))
         
-        # Load debug image
-        component_dir = os.path.dirname(os.path.abspath(__file__))
-        debug_image_path = os.path.join(component_dir, "debug.jpg")
+        # # Load debug image
+        # component_dir = os.path.dirname(os.path.abspath(__file__))
+        # debug_image_path = os.path.join(component_dir, "debug.jpg")
         
-        if not os.path.exists(debug_image_path):
-            raise cv.Invalid(f"Debug image not found at {debug_image_path}")
+        # if not os.path.exists(debug_image_path):
+            # raise cv.Invalid(f"Debug image not found at {debug_image_path}")
+        # else:
+            # with open(debug_image_path, "rb") as f:
+                # debug_image_data = f.read()
         
-        with open(debug_image_path, "rb") as f:
-            debug_image_data = f.read()
+        # # Create debug image array
+        # debug_image_id = f"{config[CONF_ID]}_debug_image"
+        # cg.add_global(
+            # cg.RawStatement(
+                # f"static const uint8_t {debug_image_id}[] = {{{','.join(f'0x{x:02x}' for x in debug_image_data)}}};"
+            # )
+        # )
         
-        # Create debug image array
-        debug_image_id = f"{config[CONF_ID]}_debug_image"
-        cg.add_global(
-            cg.RawStatement(
-                f"static const uint8_t {debug_image_id}[] = {{{','.join(f'0x{x:02x}' for x in debug_image_data)}}};"
-            )
-        )
+        # cg.add(
+            # var.set_debug_image(
+                # cg.RawExpression(debug_image_id),
+                # len(debug_image_data)
+            # )
+        # )
         
-        cg.add(
-            var.set_debug_image(
-                cg.RawExpression(debug_image_id),
-                len(debug_image_data)
-            )
-        )
+        # cg.add(var.set_camera_image_format(640, 480, "JPEG"))
         
-        # Process debug image immediately
-        # cg.add(var.test_with_debug_image())
+        # # Process debug image immediately
+        # # cg.add(var.test_with_debug_image())

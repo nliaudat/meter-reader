@@ -5,7 +5,7 @@
 #endif
 #include <algorithm>
 
-// ---- process_zone() → process_image() → process_cropped_region()
+// ---- split_image_in_zone() --> process_zone() --> scale_cropped_region()
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -50,7 +50,7 @@ ImageProcessor::ImageProcessor(const ImageProcessorConfig &config,
            model_handler_->get_input_channels());
 }
 
-std::vector<ImageProcessor::ProcessResult> ImageProcessor::process_image(
+std::vector<ImageProcessor::ProcessResult> ImageProcessor::split_image_in_zone(
     std::shared_ptr<camera::CameraImage> image,
     const std::vector<CropZone> &zones) {
   
@@ -140,7 +140,7 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
     }
 
     ESP_LOGD(TAG, "JPEG decoded successfully, processing cropped region");
-    return process_cropped_region(decoded_data.get(), out_info.width, out_info.height, zone);
+    return scale_cropped_region(decoded_data.get(), out_info.width, out_info.height, zone);
 #else
     ESP_LOGE(TAG, "JPEG support not compiled in");
     return result;
@@ -149,14 +149,14 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
 
   ESP_LOGD(TAG, "Processing direct pixel data for zone [%d,%d,%d,%d]", 
           zone.x1, zone.y1, zone.x2, zone.y2);
-  return process_cropped_region(
+  return scale_cropped_region(
       image->get_data_buffer(),
       config_.camera_width,
       config_.camera_height,
       zone);
 }
 
-ImageProcessor::ProcessResult ImageProcessor::process_cropped_region(
+ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
     const uint8_t *src_data,
     int src_width,
     int src_height,

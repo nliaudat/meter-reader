@@ -29,7 +29,7 @@ class ImageProcessor {
 
   ImageProcessor(const ImageProcessorConfig &config, ModelHandler* model_handler);
 
-  std::vector<ProcessResult> process_image(
+  std::vector<ProcessResult> split_image_in_zone(
       std::shared_ptr<camera::CameraImage> image,
       const std::vector<CropZone> &zones = {});
 
@@ -38,7 +38,7 @@ class ImageProcessor {
       std::shared_ptr<camera::CameraImage> image,
       const CropZone &zone);
 
-  ProcessResult process_cropped_region(
+  ProcessResult scale_cropped_region(
       const uint8_t *src_data,
       int src_width,
       int src_height,
