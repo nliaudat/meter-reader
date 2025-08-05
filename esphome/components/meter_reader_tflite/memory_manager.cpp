@@ -1,6 +1,6 @@
 #include "memory_manager.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "debug_utils.h"
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -8,11 +8,12 @@ namespace meter_reader_tflite {
 static const char *const TAG = "MemoryManager";
 
 MemoryManager::AllocationResult MemoryManager::allocate_tensor_arena(size_t requested_size) {
-  ESP_LOGD(TAG, "Allocating tensor arena (%zu bytes)", requested_size);
+  ESP_LOGD(TAG, "Attempting to allocate %zu bytes for tensor arena", requested_size);
   
   AllocationResult result;
   result.actual_size = requested_size;
 
+  // First try PSRAM
   uint8_t *arena_ptr = static_cast<uint8_t*>(
       heap_caps_malloc(requested_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   
@@ -23,8 +24,12 @@ MemoryManager::AllocationResult MemoryManager::allocate_tensor_arena(size_t requ
   }
 
   if (arena_ptr) {
-    result.data.reset(arena_ptr);
-    ESP_LOGD(TAG, "Successfully allocated tensor arena");
+    // Use the HeapCapsDeleter from the AllocationResult struct
+    result.data = std::unique_ptr<uint8_t[], AllocationResult::HeapCapsDeleter>(
+        arena_ptr, 
+        AllocationResult::HeapCapsDeleter());
+    
+    ESP_LOGD(TAG, "Successfully allocated tensor arena at %p", arena_ptr);
   } else {
     ESP_LOGE(TAG, "Failed to allocate tensor arena");
     result.actual_size = 0;
@@ -39,14 +44,12 @@ void MemoryManager::report_memory_status(size_t requested_size,
                                        size_t model_size) {
   size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   size_t total_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+  size_t free_psram = 0;
   
   if (total_psram > 0) {
-    ESP_LOGI(TAG, "PSRAM is available.");
-    size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    ESP_LOGI(TAG, "  PSRAM: %zuB free of %zuB total (%.1fKB / %.1fKB)", 
+    free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    ESP_LOGI(TAG, "PSRAM: %zuB free of %zuB total (%.1fKB / %.1fKB)", 
              free_psram, total_psram, free_psram / 1024.0f, total_psram / 1024.0f);
-  } else {
-    ESP_LOGW(TAG, "PSRAM not available");
   }
 
   ESP_LOGI(TAG, "Memory Status:");

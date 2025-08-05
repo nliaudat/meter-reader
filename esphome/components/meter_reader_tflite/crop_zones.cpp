@@ -1,5 +1,6 @@
 #include "crop_zones.h"
 #include "esp_log.h"
+#include "debug_utils.h"
 #include <algorithm>
 
 namespace esphome {
@@ -8,6 +9,7 @@ namespace meter_reader_tflite {
 static const char *const TAG = "CropZoneHandler";
 
 void CropZoneHandler::parse_zones(const std::string &zones_json) {
+  ESP_LOGD(TAG, "Parsing crop zones JSON: %s", zones_json.c_str());
   zones_.clear();
   std::string stripped = zones_json;
   
@@ -48,6 +50,8 @@ void CropZoneHandler::parse_zones(const std::string &zones_json) {
     }
 
     if (coords.size() == 4) {
+	  ESP_LOGD(TAG, "Added zone [%d,%d,%d,%d]", 
+             coords[0], coords[1], coords[2], coords[3]);
       zones_.push_back({coords[0], coords[1], coords[2], coords[3]});
     } else {
       ESP_LOGE(TAG, "Invalid zone format: %s", zone_str.c_str());
