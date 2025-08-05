@@ -1,6 +1,6 @@
 #include "memory_manager.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "debug_utils.h"
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -16,12 +16,6 @@ MemoryManager::AllocationResult MemoryManager::allocate_tensor_arena(size_t requ
   // First try PSRAM
   uint8_t *arena_ptr = static_cast<uint8_t*>(
       heap_caps_malloc(requested_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-	  
-  if (arena_ptr) {
-    ESP_LOGD(TAG, "Allocated %zu bytes at %p (PSRAM: %s)", 
-             requested_size, arena_ptr, 
-             (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) ? "Yes" : "No"));
-  }
   
   if (!arena_ptr) {
     ESP_LOGW(TAG, "PSRAM allocation failed, trying internal RAM");
@@ -30,8 +24,11 @@ MemoryManager::AllocationResult MemoryManager::allocate_tensor_arena(size_t requ
   }
 
   if (arena_ptr) {
-    // Initialize the unique_ptr with our custom deleter
-    result.data = std::unique_ptr<uint8_t[], AllocationResult::HeapCapsDeleter>(arena_ptr);
+    // Use the HeapCapsDeleter from the AllocationResult struct
+    result.data = std::unique_ptr<uint8_t[], AllocationResult::HeapCapsDeleter>(
+        arena_ptr, 
+        AllocationResult::HeapCapsDeleter());
+    
     ESP_LOGD(TAG, "Successfully allocated tensor arena at %p", arena_ptr);
   } else {
     ESP_LOGE(TAG, "Failed to allocate tensor arena");

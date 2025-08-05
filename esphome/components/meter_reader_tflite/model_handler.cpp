@@ -1,5 +1,6 @@
 #include "model_handler.h"
 #include "esp_log.h"
+#include "debug_utils.h"
 #include <cmath>
 
 namespace esphome {
@@ -153,6 +154,8 @@ bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
     // Resize input tensor dynamically
     // interpreter_->ResizeInputTensor(0, {1, 80, 32, 3}); // 3 channels
     // interpreter_->AllocateTensors();
+	
+	DURATION_START();
 
   if (!interpreter_) {
     ESP_LOGE(TAG, "Interpreter not initialized");
@@ -188,8 +191,15 @@ bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
     ESP_LOGE(TAG, "Input tensor size mismatch (%d != %zu)", input->bytes, input_size);
     return false;
   }
+  
+    // Validate input size
+  if (input->bytes != input_size) {
+    ESP_LOGE(TAG, "Input size mismatch! Model expects %d bytes, got %zu bytes",
+            input->bytes, input_size);
+    return false;
+  }
  
-
+  // Quick copy and invoke
   memcpy(input->data.data, input_data, input_size);
   
   if (interpreter_->Invoke() != kTfLiteOk) {
@@ -239,6 +249,7 @@ bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
 	ESP_LOGI(TAG, "Output confidence: %.2f", *output_confidence);
   }
 
+  DURATION_END("invoke_model");
   return true;
 }
 

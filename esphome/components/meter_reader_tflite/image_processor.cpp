@@ -1,5 +1,6 @@
 #include "image_processor.h"
 #include "esp_log.h"
+#include "debug_utils.h"
 #ifdef USE_JPEG
 #include "jpeg_decoder.h"
 #endif
@@ -88,6 +89,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::split_image_in_zone(
   return results;
 }
 
+
 ImageProcessor::ProcessResult ImageProcessor::process_zone(
     std::shared_ptr<camera::CameraImage> image,
     const CropZone &zone) {
@@ -110,7 +112,8 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
       return result;
     }
 
-    // JPEG decoding with detailed logging
+    // JPEG decoding with PSRAM allocation
+    esp_jpeg_image_output_t out_info;
     esp_jpeg_image_cfg_t jpeg_cfg = {
       .indata = const_cast<uint8_t*>(jpeg_data),
       .indata_size = jpeg_size,
@@ -121,34 +124,47 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
       .flags = {.swap_color_bytes = 1}
     };
 
-    esp_jpeg_image_output_t out_info;
-    ESP_LOGD(TAG, "Getting JPEG image info");
+    // Get image info first
     if (esp_jpeg_get_image_info(&jpeg_cfg, &out_info) != ESP_OK) {
       ESP_LOGE(TAG, "JPEG info failed");
       return result;
     }
-    ESP_LOGD(TAG, "JPEG dimensions: %dx%d", out_info.width, out_info.height);
 
-    std::unique_ptr<uint8_t[]> decoded_data(new uint8_t[out_info.width * out_info.height * 3]);
-    jpeg_cfg.outbuf = decoded_data.get();
+    // Allocate output buffer in PSRAM
+    uint8_t* decoded_data = static_cast<uint8_t*>(
+        heap_caps_malloc(out_info.width * out_info.height * 3, 
+                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    
+    if (!decoded_data) {
+      ESP_LOGE(TAG, "Failed to allocate PSRAM for JPEG decode");
+      return result;
+    }
+
+    // Set up decoder with PSRAM buffer
+    jpeg_cfg.outbuf = decoded_data;
     jpeg_cfg.outbuf_size = out_info.width * out_info.height * 3;
 
-    ESP_LOGD(TAG, "Decoding JPEG image");
+    // Create a custom deleter for the unique_ptr
+    auto psram_deleter = [](uint8_t* p) {
+      if (p) heap_caps_free(p);
+    };
+
+    std::unique_ptr<uint8_t[], decltype(psram_deleter)> decoded_buffer(decoded_data, psram_deleter);
+
     if (esp_jpeg_decode(&jpeg_cfg, &out_info) != ESP_OK) {
       ESP_LOGE(TAG, "JPEG decode failed");
       return result;
     }
 
     ESP_LOGD(TAG, "JPEG decoded successfully, processing cropped region");
-    return scale_cropped_region(decoded_data.get(), out_info.width, out_info.height, zone);
+    return scale_cropped_region(decoded_buffer.get(), out_info.width, out_info.height, zone);
 #else
     ESP_LOGE(TAG, "JPEG support not compiled in");
     return result;
 #endif
   }
 
-  ESP_LOGD(TAG, "Processing direct pixel data for zone [%d,%d,%d,%d]", 
-          zone.x1, zone.y1, zone.x2, zone.y2);
+  // Non-JPEG processing remains the same
   return scale_cropped_region(
       image->get_data_buffer(),
       config_.camera_width,
@@ -156,7 +172,8 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
       zone);
 }
 
-ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
+
+/* ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
     const uint8_t *src_data,
     int src_width,
     int src_height,
@@ -213,6 +230,45 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
   ESP_LOGD("ImageProcessor", "Processed region size: %zu bytes", result.size);
   
   ESP_LOGD(TAG, "Image processing completed successfully");
+  return result;
+} */
+
+ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
+    const uint8_t *src_data,
+    int src_width,
+    int src_height,
+    const CropZone &zone) {
+		
+  DURATION_START()
+  
+  ProcessResult result{nullptr, 0};
+  const int model_width = model_handler_->get_input_width(); // 32
+  const int model_height = model_handler_->get_input_height(); // 20
+  const int model_channels = model_handler_->get_input_channels(); // 3
+  
+  // Allocate exact size needed by model
+  result.data.reset(new uint8_t[model_width * model_height * model_channels]());
+  result.size = model_width * model_height * model_channels;
+
+  // Calculate scaling factors
+  float width_scale = static_cast<float>(model_width) / (zone.x2 - zone.x1);
+  float height_scale = static_cast<float>(model_height) / (zone.y2 - zone.y1);
+
+  // Simple nearest-neighbor scaling
+  for (int y = 0; y < model_height; y++) {
+    for (int x = 0; x < model_width; x++) {
+      int src_x = zone.x1 + static_cast<int>(x / width_scale);
+      int src_y = zone.y1 + static_cast<int>(y / height_scale);
+      
+      for (int c = 0; c < model_channels; c++) {
+        size_t src_idx = (src_y * src_width + src_x) * bytes_per_pixel_ + (c % bytes_per_pixel_);
+        size_t dst_idx = (y * model_width + x) * model_channels + c;
+        result.data[dst_idx] = src_data[src_idx];
+      }
+    }
+  }
+  
+  DURATION_END("scale_cropped_region");
   return result;
 }
 

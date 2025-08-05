@@ -20,8 +20,10 @@ CONF_TENSOR_ARENA_SIZE = 'tensor_arena_size'
 CONF_CONFIDENCE_THRESHOLD = 'confidence_threshold'
 CONF_RAW_DATA_ID = 'raw_data_id'
 CONF_DEBUG = 'debug'
+# CONF_DEBUG_DURATION = 'debug_duration' // can be enabled in  meter_reader_tflite.h #define DEBUG_DURATION
 # CONF_DEBUG_IMAGE_PATH = 'debug_image_path'
 CONF_SENSOR = 'meter_reader_value_sensor' 
+
 
 meter_reader_tflite_ns = cg.esphome_ns.namespace('meter_reader_tflite')
 MeterReaderTFLite = meter_reader_tflite_ns.class_('MeterReaderTFLite', cg.PollingComponent)

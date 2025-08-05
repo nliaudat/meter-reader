@@ -1,5 +1,6 @@
 #include "crop_zones.h"
 #include "esp_log.h"
+#include "debug_utils.h"
 #include <algorithm>
 
 namespace esphome {

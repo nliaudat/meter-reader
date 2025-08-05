@@ -4,6 +4,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/esp32_camera/esp32_camera.h"
 #include "esphome/components/camera/camera.h"
+// #include "esphome/core/hal.h"  // For millis() and other core functions
 // #include "esphome/core/application.h" //for defer loading after boot
 #include "model_handler.h"
 #include "memory_manager.h"
@@ -14,6 +15,13 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <atomic>
+
+
+#define DEBUG_DURATION  // Comment this out to disable duration debugging
+
+
+
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -109,6 +117,18 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
     {460, 235, 499, 311}, {520, 235, 559, 342}
   };
 #endif */
+
+private:
+  // Double buffering
+  std::array<std::shared_ptr<camera::CameraImage>, 2> frame_buffers_;
+  std::atomic<int> active_buffer_{0};
+  std::atomic<bool> processing_buffer_{false};
+  
+  // State flags
+  // bool debug_mode_{false};
+  // bool model_loaded_{false};
+  // esp32_camera::ESP32Camera *camera_{nullptr};
+  
   
 };
 

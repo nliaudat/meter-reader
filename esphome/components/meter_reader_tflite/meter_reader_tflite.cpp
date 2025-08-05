@@ -1,5 +1,8 @@
 #include "meter_reader_tflite.h"
 #include "esp_log.h"
+#include "debug_utils.h"
+
+
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -55,15 +58,28 @@ void MeterReaderTFLite::get_camera_image(esp32_camera::ESP32Camera *camera) {
     camera_ = camera;
     
     camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
-        // Only store image if we requested it
+        //Only store image if we requested it
         if (image_requested_ && !is_processing_image_ && !current_image_) {
             current_image_ = image;
             image_requested_ = false;
             ESP_LOGD(TAG, "Captured image for processing");
         }
-        // Else let the frame drop (camera continues streaming)
+        //Else let the frame drop (camera continues streaming)
     });
 }
+
+
+/* void MeterReaderTFLite::get_camera_image(esp32_camera::ESP32Camera *camera) {
+  camera_ = camera;
+  
+  camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
+    if (!processing_buffer_) { // Only store if not currently processing
+      int target_buffer = 1 - active_buffer_.load(); // Get inactive buffer
+      frame_buffers_[target_buffer] = image; // Store in inactive buffer
+    }
+    // Else: frame is automatically dropped when callback ends
+  });
+} */
 
 void MeterReaderTFLite::update() {
     if (debug_mode_) {
@@ -83,6 +99,54 @@ void MeterReaderTFLite::update() {
     process_full_image();
 }
 
+/* void MeterReaderTFLite::update() {
+  if (!frame_buffers_[active_buffer_]) {
+    ESP_LOGD(TAG, "No frame available - requesting new one");
+    camera_->request_image();
+  } else {
+    process_full_image();
+  }
+} */
+
+/* void MeterReaderTFLite::update() {
+	
+	// graph TD
+  // A[Update Called] --> B{Buffer Ready?}
+  // B -->|Yes| C[Process Frame]
+  // B -->|No| D[Request New Frame]
+  // C --> E{Next Buffer Empty?}
+  // E -->|Yes| F[Pre-Request Frame]
+	
+  DURATION_START();
+
+  if (debug_mode_) {
+    DURATION_END("update (debug mode skip)");
+    return;
+  }
+
+  if (!model_loaded_ || !camera_) {
+    DURATION_END("update (system not ready)");
+    return;
+  }
+
+  // Check if we have a processable frame
+  int current_buffer = active_buffer_.load();
+  if (frame_buffers_[current_buffer] && !processing_buffer_) {
+    DURATION_START();
+    process_full_image();
+    DURATION_END("Frame Processing");
+  }
+
+  // Request new frame if inactive buffer is empty
+  int next_buffer = 1 - current_buffer;
+  if (!frame_buffers_[next_buffer]) {
+    ESP_LOGD(TAG, "Requesting new frame for buffer %d", next_buffer);
+    camera_->request_image(camera::IDLE);
+  }
+
+  DURATION_END("update");
+} */
+
 void MeterReaderTFLite::request_and_process_image() {
     if (is_processing_image_) {
         return;
@@ -93,33 +157,136 @@ void MeterReaderTFLite::request_and_process_image() {
     camera_->request_image(camera::IDLE);
 }
 
+
+
 void MeterReaderTFLite::process_full_image() {
-    if (is_processing_image_ || !current_image_) {
-        return;
-    }
-    is_processing_image_ = true;
-
-    // Process and immediately release the image
+  DURATION_START();
+  
+  if (is_processing_image_ || !current_image_) {
+    DURATION_END("process_full_image (early exit)");
+    return;
+  }
+  
+  is_processing_image_ = true;
+  
+  { // Scope for immediate image release
     auto image = std::move(current_image_);
+    
+    DURATION_START();
+	
     auto processed_zones = image_processor_->split_image_in_zone(image, 
-        crop_zone_handler_.get_zones().empty() 
-            ? std::vector<CropZone>{{0, 0, camera_width_, camera_height_}}
-            : crop_zone_handler_.get_zones()
-    );
-
-    // Process results...
-    for (auto& result : processed_zones) {
-        float value, confidence;
-        if (model_handler_.invoke_model(result.data.get(), result.size, &value, &confidence)) {
-            if (value_sensor_ && confidence >= confidence_threshold_) {
-                value_sensor_->publish_state(value);
-            }
-        }
+      crop_zone_handler_.get_zones());
+	  
+    DURATION_END("ImageProcessor::split_image_in_zone");
+    
+    if (!processed_zones.empty()) {
+      DURATION_START();
+      float value, confidence;
+      bool invoke_result = model_handler_.invoke_model(
+        processed_zones[0].data.get(), 
+        processed_zones[0].size, 
+        &value, 
+        &confidence
+      );
+      uint32_t inference_time = millis() - duration_start_;
+      DURATION_LOG("Model inference time", inference_time);
+      
+      if (invoke_result && value_sensor_) {
+        value_sensor_->publish_state(value);
+      }
     }
-
-    is_processing_image_ = false;
-    current_image_.reset(); // Ensure cleanup
+  }
+  
+  is_processing_image_ = false;
+  DURATION_END("process_full_image");
 }
+
+
+/* void MeterReaderTFLite::process_full_image() {
+  DURATION_START();
+  
+  // Check if we can process
+  if (processing_buffer_.exchange(true)) {
+    DURATION_END("process_full_image (already processing)");
+    return;
+  }
+
+  // Get current buffer to process
+  // const int buffer_idx = active_buffer_.load();
+  // auto& current_frame = frame_buffers_[buffer_idx];
+  
+  int buffer_idx = active_buffer_.load();
+  auto current_frame = std::move(frame_buffers_[buffer_idx]);
+  
+  if (!current_frame) {
+    processing_buffer_ = false;
+    return;
+  }
+  
+  ESP_LOGD(TAG, "Buffer status: 0=%s, 1=%s",
+        frame_buffers_[0] ? "full" : "empty",
+        frame_buffers_[1] ? "full" : "empty");
+  
+  
+  ESP_LOGD(TAG, "Processing frame from buffer %d", buffer_idx);
+  
+  // if (!current_frame) {
+    // processing_buffer_ = false;
+    // DURATION_END("process_full_image (no frame)");
+    // return;
+  // }
+
+  ESP_LOGD(TAG, "Processing buffer %d (%zu bytes)", 
+          buffer_idx, current_frame->get_data_length());
+
+  // Process the frame
+  std::vector<float> readings;
+  std::vector<float> confidences;
+  
+  { // Scope for immediate frame release
+    DURATION_START();
+    auto processed_zones = image_processor_->split_image_in_zone(
+      current_frame,
+      crop_zone_handler_.get_zones().empty() 
+        ? std::vector<CropZone>{{0, 0, camera_width_, camera_height_}}
+        : crop_zone_handler_.get_zones()
+    );
+	
+
+    DURATION_END("ImageProcessor::split_image_in_zone");
+
+    // Process results
+    for (auto& result : processed_zones) {
+      DURATION_START();
+      float value, confidence;
+      if (model_handler_.invoke_model(result.data.get(), 
+                                    result.size, 
+                                    &value, 
+                                    &confidence)) {
+        readings.push_back(value);
+        confidences.push_back(confidence);
+      }
+      DURATION_END("ModelHandler::invoke_model");
+    }
+    
+    // Release frame immediately after processing
+    current_frame.reset();
+  }
+
+  // Publish results
+  if (!readings.empty()) {
+    float final_reading = combine_readings(readings);
+    if (value_sensor_) {
+      value_sensor_->publish_state(final_reading);
+    }
+  }
+
+  // Switch active buffer
+  active_buffer_.store(1 - buffer_idx);
+  processing_buffer_ = false;
+  
+  DURATION_END("process_full_image");
+} */
 
 void MeterReaderTFLite::set_model(const uint8_t *model, size_t length) {
   model_ = model;
@@ -515,6 +682,11 @@ MeterReaderTFLite::~MeterReaderTFLite() {
 
     // 7. Clear camera reference
     camera_ = nullptr;
+	
+  // Clean up double buffers
+  for (auto& buffer : frame_buffers_) {
+    buffer.reset();
+  }
 
     ESP_LOGD(TAG, "Destruction complete");
 }

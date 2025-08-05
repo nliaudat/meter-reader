@@ -13,11 +13,10 @@ class MemoryManager {
   struct AllocationResult {
     struct HeapCapsDeleter {
       void operator()(uint8_t* p) const {
-        if (p) {
-          heap_caps_free(p);
-        }
+        if (p) heap_caps_free(p);
       }
     };
+    
     std::unique_ptr<uint8_t[], HeapCapsDeleter> data;
     size_t actual_size;
     
