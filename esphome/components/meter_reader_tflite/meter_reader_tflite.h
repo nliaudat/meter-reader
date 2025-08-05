@@ -23,6 +23,10 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void setup() override;
   void update() override;
   void loop() override;
+  void request_and_process_image();
+  
+  // class destructor :
+  ~MeterReaderTFLite() override;  // 'override' is important for virtual destructors
   
   float get_setup_priority() const override { return setup_priority::LATE; }
 
@@ -59,6 +63,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
  protected:
   bool allocate_tensor_arena();
   bool load_model();
+  bool image_requested_ = false;
   void report_memory_status();
   size_t get_arena_peak_bytes() const;
   void process_full_image();
