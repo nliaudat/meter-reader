@@ -111,6 +111,11 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
       ESP_LOGE(TAG, "Invalid JPEG data");
       return result;
     }
+	
+	if (!validate_jpeg(jpeg_data, jpeg_size)) {
+	  ESP_LOGE(TAG, "Invalid JPEG markers");
+	  return result;
+	}
 
     // JPEG decoding with PSRAM allocation
     esp_jpeg_image_output_t out_info;
@@ -170,6 +175,38 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
       config_.camera_width,
       config_.camera_height,
       zone);
+}
+
+
+bool ImageProcessor::validate_jpeg(const uint8_t* data, size_t size) {
+    // Minimum JPEG size is 2 bytes for SOI marker plus some content
+    if (size < 4) {
+        ESP_LOGE(TAG, "JPEG too small (%zu bytes)", size);
+        return false;
+    }
+    
+    // Check for JPEG Start of Image marker (0xFFD8)
+    if (data[0] != 0xFF || data[1] != 0xD8) {
+        ESP_LOGE(TAG, "Missing JPEG SOI marker (got 0x%02X%02X)", data[0], data[1]);
+        return false;
+    }
+    
+    // Optional: Check for End of Image marker somewhere in the data
+    // (Don't require it to be at the end in case we got truncated data)
+    bool has_eoi = false;
+    for (size_t i = 2; i < size - 1; i++) {
+        if (data[i] == 0xFF && data[i+1] == 0xD9) {
+            has_eoi = true;
+            break;
+        }
+    }
+    
+    if (!has_eoi) {
+        ESP_LOGW(TAG, "No JPEG EOI marker found");
+        // Don't return false here as some cameras might send partial frames
+    }
+    
+    return true;
 }
 
 

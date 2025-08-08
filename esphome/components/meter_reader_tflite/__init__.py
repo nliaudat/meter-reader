@@ -88,7 +88,8 @@ async def to_code(config):
     await cg.register_component(var, config)
 
     cam = await cg.get_variable(config[CONF_CAMERA_ID])
-    cg.add(var.get_camera_image(cam)) #set camera
+    # cg.add(var.get_camera_image(cam)) #set camera
+    cg.add(var.set_camera(cam))
 
     if CONF_SENSOR in config:
         sens = await sensor.new_sensor(config[CONF_SENSOR])
