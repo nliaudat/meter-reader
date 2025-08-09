@@ -16,6 +16,8 @@
 #include <vector>
 #include <string>
 #include <atomic>
+#include <mutex> // needs CONFIG_FREERTOS_SUPPORT_STATIC_ALLOCATION=y # for frame_mutex_ in meter_reader_tflite.*
+// #include <numeric> // for std::accumulate
 
 
 #define DEBUG_DURATION  // Comment this out to disable duration debugging
@@ -52,6 +54,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void set_value_sensor(sensor::Sensor *sensor);
   void set_crop_zones(const std::string &zones_json);
   void set_camera_image_format(int width, int height, const std::string &pixel_format);
+  void set_camera(esp32_camera::ESP32Camera *camera) { camera_ = camera; }
   void set_model_config(const std::string &model_type);
   // void print_debug_info() {
     // DebugUtils::print_debug_info(*this);
@@ -74,7 +77,10 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   bool image_requested_ = false;
   void report_memory_status();
   size_t get_arena_peak_bytes() const;
-  void process_full_image();
+  // void process_full_image();
+  void process_full_image(std::shared_ptr<camera::CameraImage> frame);
+  // bool process_model_result(const ProcessedImageResult& result, float* value, float* confidence);
+  bool process_model_result(const ImageProcessor::ProcessResult& result, float* value, float* confidence);
   float combine_readings(const std::vector<float> &readings);
   // void preprocess_image(std::shared_ptr<camera::CameraImage> image);
 
@@ -89,7 +95,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   // State variables
   size_t tensor_arena_size_actual_{0};
   bool model_loaded_{false};
-  std::shared_ptr<camera::CameraImage> current_image_;
+  std::shared_ptr<camera::CameraImage> current_frame_;
   size_t image_offset_{0};
   const uint8_t *model_{nullptr};
   size_t model_length_{0};
@@ -106,7 +112,8 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   
   std::shared_ptr<camera::CameraImage> debug_image_;
   
-  bool is_processing_image_ = false; // Todo : better if std::atomic<bool> is_processing_image_{false};
+  // bool is_processing_image_ = false; // Todo : better if std::atomic<bool> is_processing_image_{false};
+  std::atomic<bool> is_processing_{false};
   
 /* #ifdef DEBUG_METER_READER_TFLITE
   // std::shared_ptr<camera::CameraImage> debug_image_;
@@ -120,9 +127,13 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
 
 private:
   // Double buffering
-  std::array<std::shared_ptr<camera::CameraImage>, 2> frame_buffers_;
-  std::atomic<int> active_buffer_{0};
-  std::atomic<bool> processing_buffer_{false};
+  // std::array<std::shared_ptr<camera::CameraImage>, 2> frame_buffers_;
+  // std::atomic<int> active_buffer_{0};
+  // std::atomic<bool> processing_buffer_{false};
+  
+  void setup_camera_callback();
+  std::mutex frame_mutex_;
+  bool frame_requested_{false};
   
   // State flags
   // bool debug_mode_{false};

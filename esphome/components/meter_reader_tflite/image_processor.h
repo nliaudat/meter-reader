@@ -46,6 +46,7 @@ class ImageProcessor {
       const CropZone &zone);
 
   bool validate_zone(const CropZone &zone) const;
+  static bool validate_jpeg(const uint8_t* data, size_t size);
 
   ImageProcessorConfig config_;
   ModelHandler* model_handler_;
