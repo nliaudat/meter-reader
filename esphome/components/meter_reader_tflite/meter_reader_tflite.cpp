@@ -9,130 +9,6 @@ namespace meter_reader_tflite {
 
 static const char *const TAG = "meter_reader_tflite";
 
-/* void MeterReaderTFLite::setup() {
-  ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
-  
-  if (camera_width_ == 0 || camera_height_ == 0) {
-    ESP_LOGE(TAG, "Camera dimensions not set!");
-    mark_failed();
-    return;
-  }
-  
-  if (!camera_) {
-    ESP_LOGE(TAG, "No camera configured!");
-    mark_failed();
-    return;
-  }
-  
-  
-  // Setup camera callback immediately
-  setup_camera_callback(); //process each frame from camera ...
-
-  ESP_LOGI(TAG, "Camera is ready, delaying model loading...");
-  // ESP_LOGI(TAG, "Model loading delayed for 10 seconds ...");
-  // Delay model loading by 10 sec
-  this->set_timeout(10000, [this]() { //10 sec
-    if (!this->load_model()) {
-      ESP_LOGE(TAG, "Failed to load model. Marking component as failed.");
-      this->mark_failed();
-      return;
-    }
-    this->model_loaded_ = true;
-	
-    
-	ESP_LOGI(TAG, "Setting up Image Processor ...");
-    // Initialize image processor AFTER model is loaded
-    image_processor_ = std::make_unique<ImageProcessor>(
-      ImageProcessorConfig{
-        camera_width_,
-        camera_height_,
-        pixel_format_
-      },
-      &model_handler_
-    );
-    
-    ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
-
-	
-  });
-} */
-
-// void MeterReaderTFLite::get_camera_image(esp32_camera::ESP32Camera *camera) {
-    // camera_ = camera;
-    
-    // camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
-        //Only store image if we requested it
-        // if (image_requested_ && !is_processing_image_ && !current_frame_) {
-            // current_frame_ = image;
-            // image_requested_ = false;
-            // ESP_LOGD(TAG, "Captured image for processing");
-        // }
-        //Else let the frame drop (camera continues streaming)
-    // });
-// }
-
-
-/* void MeterReaderTFLite::get_camera_image(esp32_camera::ESP32Camera *camera) {
-  camera_ = camera;
-  
-  camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
-    if (!processing_buffer_) { // Only store if not currently processing
-      int target_buffer = 1 - active_buffer_.load(); // Get inactive buffer
-      frame_buffers_[target_buffer] = image; // Store in inactive buffer
-    }
-    // Else: frame is automatically dropped when callback ends
-  });
-} */
-
-/* void MeterReaderTFLite::update() {
-	
-    // if (debug_mode_) {
-        // ESP_LOGD(TAG, "Debug mode active - skipping update interval");
-        // return;
-    // }
-
-    if (!model_loaded_ || !camera_) {
-        return;
-    }
-
-  // Request new frame if needed
-  {
-    std::lock_guard<std::mutex> lock(frame_mutex_);
-    if (!current_frame_ && !frame_requested_) {
-      frame_requested_ = true;
-      camera_->request_image(camera::IDLE);
-      return;
-    }
-    
-    if (!current_frame_) {
-      return; // Still waiting for frame
-    }
-  }
-
-
-
-    if (!current_frame_) {
-        //request_and_process_image();
-		ESP_LOGD(TAG, "No image available from callback (get_camera_image() )");
-        return;
-    }
-
-    process_full_image();
-}
- */
-
-// void MeterReaderTFLite::setup_camera_callback() { //process each frame from camera ...
-    // camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
-        // std::lock_guard<std::mutex> lock(frame_mutex_);
-        // if (frame_requested_) {
-            // current_frame_ = image;
-            // frame_requested_ = false;
-			// ESP_LOGD(TAG, "Received new frame");
-        // }
-        // Else let the frame drop (camera continues streaming)
-    // });
-// }
-
 
 void MeterReaderTFLite::setup() {
   ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
@@ -169,259 +45,166 @@ void MeterReaderTFLite::setup() {
 }
 
 void MeterReaderTFLite::setup_camera_callback() {
-	camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
-	  std::lock_guard<std::mutex> lock(frame_mutex_);
-	  if (!is_processing_ && frame_requested_) {
-		current_frame_ = image;
-		frame_requested_ = false;
-		ESP_LOGD(TAG, "Received new frame");
-	  } else {
-		ESP_LOGD(TAG, "Dropping frame - system busy");
-	  }
-	});
+    camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
+        std::lock_guard<std::mutex> lock(frame_mutex_);
+        if (frame_requested_) {
+            current_frame_ = image;
+            frame_requested_ = false;
+            ESP_LOGD(TAG, "Received new frame");
+        }
+        // Else silently drop the frame
+    });
 }
 
 void MeterReaderTFLite::update() {
-  if (!model_loaded_ || !camera_) {
-    return;
-  }
-
-  // Request new frame if needed
-  {
-    std::lock_guard<std::mutex> lock(frame_mutex_);
-    if (!current_frame_ && !frame_requested_) {
-      frame_requested_ = true;
-      camera_->request_image(camera::IDLE);
-      return;
+    // Early exit if system isn't ready
+    if (!model_loaded_ || !camera_) {
+        ESP_LOGW(TAG, "Update skipped - system not ready (model:%d, camera:%d)", 
+                model_loaded_, (camera_ != nullptr));
+        return;
     }
-    
-    if (!current_frame_) {
-      return; // Still waiting for frame
+
+    // Check if we should request a new frame
+    bool should_request_frame = false;
+    {
+        std::lock_guard<std::mutex> lock(frame_mutex_);
+        if (!current_frame_ && !frame_requested_) {
+            should_request_frame = true;
+            frame_requested_ = true;
+        }
     }
-  }
 
-  process_full_image();
-}
-
-void MeterReaderTFLite::process_full_image() {
-  DURATION_START();
-  
-  std::shared_ptr<camera::CameraImage> frame;
-  {
-    std::lock_guard<std::mutex> lock(frame_mutex_);
-    if (!current_frame_) {
-      DURATION_END("process_full_image (no frame)");
-      return;
+    // Request new frame if needed (outside mutex lock)
+    if (should_request_frame) {
+        ESP_LOGD(TAG, "Requesting new frame");
+        camera_->request_image(camera::IDLE);
+        // Since request_image() returns void, we assume the request was made
+        // and rely on the callback to handle frame_requested_ state
+        return; // Exit and wait for callback
     }
-    frame = std::move(current_frame_);
-  }
 
-  // Process the frame
-  auto zones = crop_zone_handler_.get_zones();
-  if (zones.empty()) {
-    zones.push_back({0, 0, camera_width_, camera_height_});
-  }
-  
-  // auto processed_zones = image_processor_->split_image_in_zone(frame, zones);
-  
-  // try {
-	  // auto processed_zones = image_processor_->split_image_in_zone(frame, zones);
-	// } catch (const std::exception& e) {
-	  // ESP_LOGE(TAG, "Image processing failed: %s", e.what());
-	  // current_frame_.reset();  // Ensure frame is released
-	  // frame_requested_ = true; // Request new frame
-	  // return;
-	// }
-  
-  // if (!processed_zones.empty()) {
-    // float value, confidence;
-    // if (model_handler_.invoke_model(processed_zones[0].data.get(), 
-                                  // processed_zones[0].size, 
-                                  // &value, 
-                                  // &confidence)) {
-      // if (value_sensor_) {
-        // value_sensor_->publish_state(value);
-      // }
-    // }
-  // }
-  
-  
-  std::vector<ImageProcessor::ProcessResult> processed_zones;
-
-	// Replace try-catch with direct error checking | (build_flags = -fexceptions) no enabled
-	if (image_processor_) {
-		processed_zones = image_processor_->split_image_in_zone(frame, zones);
-	} else {
-		ESP_LOGE(TAG, "Image processor not initialized");
-		current_frame_.reset();
-		frame_requested_ = true;
-		return;
-	}
-
-	if (!processed_zones.empty()) {
-		float value, confidence;
-		if (model_handler_.invoke_model(processed_zones[0].data.get(), 
-									  processed_zones[0].size, 
-									  &value, 
-									  &confidence)) {
-			if (value_sensor_) {
-				value_sensor_->publish_state(value);
-			}
-		}
-	}
-  
-  DURATION_END("process_full_image");
+    // Process existing frame if available
+    {
+        std::lock_guard<std::mutex> lock(frame_mutex_);
+        if (current_frame_) {
+            // Process outside the lock to minimize mutex hold time
+            auto frame = std::move(current_frame_);
+            current_frame_.reset();
+            
+            // Release mutex before processing
+            frame_mutex_.unlock();
+            process_full_image(frame);
+            frame_mutex_.lock();
+        }
+    }
 }
 
 
-/* void MeterReaderTFLite::update() {
-  if (!frame_buffers_[active_buffer_]) {
-    ESP_LOGD(TAG, "No frame available - requesting new one");
-    camera_->request_image();
-  } else {
-    process_full_image();
-  }
-} */
-
-/* void MeterReaderTFLite::update() {
-	
-	// graph TD
-  // A[Update Called] --> B{Buffer Ready?}
-  // B -->|Yes| C[Process Frame]
-  // B -->|No| D[Request New Frame]
-  // C --> E{Next Buffer Empty?}
-  // E -->|Yes| F[Pre-Request Frame]
-	
-  DURATION_START();
-
-  if (debug_mode_) {
-    DURATION_END("update (debug mode skip)");
-    return;
-  }
-
-  if (!model_loaded_ || !camera_) {
-    DURATION_END("update (system not ready)");
-    return;
-  }
-
-  // Check if we have a processable frame
-  int current_buffer = active_buffer_.load();
-  if (frame_buffers_[current_buffer] && !processing_buffer_) {
+void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> frame) {
     DURATION_START();
-    process_full_image();
-    DURATION_END("Frame Processing");
-  }
-
-  // Request new frame if inactive buffer is empty
-  int next_buffer = 1 - current_buffer;
-  if (!frame_buffers_[next_buffer]) {
-    ESP_LOGD(TAG, "Requesting new frame for buffer %d", next_buffer);
-    camera_->request_image(camera::IDLE);
-  }
-
-  DURATION_END("update");
-} */
-
-// void MeterReaderTFLite::request_and_process_image() {
-    // if (is_processing_image_) {
-        // return;
-    // }
     
-    // ESP_LOGD(TAG, "Requesting new image for processing");
-    // image_requested_ = true;
-    // camera_->request_image(camera::IDLE);
-// }
+    // Validate input frame
+    if (!frame || !frame->get_data_buffer() || frame->get_data_length() == 0) {
+        ESP_LOGE(TAG, "Invalid frame received for processing");
+        DURATION_END("process_full_image (invalid frame)");
+        return;
+    }
 
+    ESP_LOGD(TAG, "Processing frame (%zu bytes)", frame->get_data_length());
 
+    // Get crop zones or use full frame if none configured
+    auto zones = crop_zone_handler_.get_zones();
+    if (zones.empty()) {
+        zones.push_back({0, 0, camera_width_, camera_height_});
+        ESP_LOGD(TAG, "No crop zones configured - using full frame");
+    }
 
+    // Process each zone
+    std::vector<float> readings;
+    std::vector<float> confidences;
+    bool processing_success = true;
 
-
-
-/* void MeterReaderTFLite::process_full_image() {
-  DURATION_START();
-  
-  // Check if we can process
-  if (processing_buffer_.exchange(true)) {
-    DURATION_END("process_full_image (already processing)");
-    return;
-  }
-
-  // Get current buffer to process
-  // const int buffer_idx = active_buffer_.load();
-  // auto& current_frame = frame_buffers_[buffer_idx];
-  
-  int buffer_idx = active_buffer_.load();
-  auto current_frame = std::move(frame_buffers_[buffer_idx]);
-  
-  if (!current_frame) {
-    processing_buffer_ = false;
-    return;
-  }
-  
-  ESP_LOGD(TAG, "Buffer status: 0=%s, 1=%s",
-        frame_buffers_[0] ? "full" : "empty",
-        frame_buffers_[1] ? "full" : "empty");
-  
-  
-  ESP_LOGD(TAG, "Processing frame from buffer %d", buffer_idx);
-  
-  // if (!current_frame) {
-    // processing_buffer_ = false;
-    // DURATION_END("process_full_image (no frame)");
-    // return;
-  // }
-
-  ESP_LOGD(TAG, "Processing buffer %d (%zu bytes)", 
-          buffer_idx, current_frame->get_data_length());
-
-  // Process the frame
-  std::vector<float> readings;
-  std::vector<float> confidences;
-  
-  { // Scope for immediate frame release
-    DURATION_START();
-    auto processed_zones = image_processor_->split_image_in_zone(
-      current_frame,
-      crop_zone_handler_.get_zones().empty() 
-        ? std::vector<CropZone>{{0, 0, camera_width_, camera_height_}}
-        : crop_zone_handler_.get_zones()
-    );
-	
-
-    DURATION_END("ImageProcessor::split_image_in_zone");
-
-    // Process results
+    // Process image through the pipeline
+    auto processed_zones = image_processor_->split_image_in_zone(frame, zones);
+    
+    // Invoke model for each processed zone
     for (auto& result : processed_zones) {
-      DURATION_START();
-      float value, confidence;
-      if (model_handler_.invoke_model(result.data.get(), 
-                                    result.size, 
-                                    &value, 
-                                    &confidence)) {
-        readings.push_back(value);
-        confidences.push_back(confidence);
-      }
-      DURATION_END("ModelHandler::invoke_model");
+        float value, confidence;
+        if (process_model_result(result, &value, &confidence)) {
+            readings.push_back(value);
+            confidences.push_back(confidence);
+            
+            ESP_LOGD(TAG, "Zone result - Value: %.1f, Confidence: %.2f", 
+                    value, confidence);
+        } else {
+            ESP_LOGE(TAG, "Model result processing failed for zone");
+            processing_success = false;
+            break;
+        }
     }
+
+    // Publish results if successful
+    if (processing_success && !readings.empty()) {
+        float final_reading = combine_readings(readings);
+        float total_confidence = 0.0f;
+        for (float conf : confidences) {
+            total_confidence += conf;
+        }
+        float avg_confidence = total_confidence / confidences.size();
+        
+        ESP_LOGI(TAG, "Final reading: %.1f (avg confidence: %.2f)", 
+                final_reading, avg_confidence);
+
+        if (value_sensor_) {
+            value_sensor_->publish_state(final_reading);
+        }
+    } else {
+        ESP_LOGE(TAG, "Frame processing failed");
+    }
+
+    // Memory cleanup
+    frame.reset();
+    DURATION_END("process_full_image");
+}
+
+bool MeterReaderTFLite::process_model_result(const ImageProcessor::ProcessResult& result, float* value, float* confidence) {
+    // Invoke the model with the processed image data
+    if (!model_handler_.invoke_model(result.data.get(), result.size)) {
+        ESP_LOGE(TAG, "Model invocation failed");
+        return false;
+    }
+
+    // Get the raw model output
+    const float* output = model_handler_.get_output();
+    if (!output) {
+        ESP_LOGE(TAG, "Failed to get model output");
+        return false;
+    }
+
+    // Find the highest probability class (softmax-like operation)
+    float max_prob = 0.0f;
+    int predicted_class = 0;
+    const int num_classes = model_handler_.get_output_size();
     
-    // Release frame immediately after processing
-    current_frame.reset();
-  }
-
-  // Publish results
-  if (!readings.empty()) {
-    float final_reading = combine_readings(readings);
-    if (value_sensor_) {
-      value_sensor_->publish_state(final_reading);
+    for (int i = 0; i < num_classes; i++) {
+        if (output[i] > max_prob) {
+            max_prob = output[i];
+            predicted_class = i;
+        }
     }
-  }
 
-  // Switch active buffer
-  active_buffer_.store(1 - buffer_idx);
-  processing_buffer_ = false;
-  
-  DURATION_END("process_full_image");
-} */
+    // Special handling for digit '0' if needed (class 10 = 0)
+    if (predicted_class == 10) {
+        predicted_class = 0;
+    }
+
+    *value = static_cast<float>(predicted_class);
+    *confidence = max_prob;
+
+    ESP_LOGD(TAG, "Model output - Class: %d, Confidence: %.2f", predicted_class, max_prob);
+    return true;
+}
+
 
 void MeterReaderTFLite::set_model(const uint8_t *model, size_t length) {
   model_ = model;

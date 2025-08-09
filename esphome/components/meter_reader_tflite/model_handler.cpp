@@ -147,7 +147,7 @@ float ModelHandler::process_output(const float* output_data) const {
   }
 }
 
-bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
+/* bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
                               float* output_value, float* output_confidence) {
 								  
 
@@ -229,10 +229,6 @@ bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
   }
   
   
-  // if (output->bytes < 2 * sizeof(float)) {
-    // ESP_LOGE(TAG, "Output tensor too small (%d < %zu)", output->bytes, 2 * sizeof(float));
-    // return false;
-  // }
 
   float* output_data = reinterpret_cast<float*>(output->data.data);
   *output_value = process_output(output_data);
@@ -251,7 +247,91 @@ bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
 
   DURATION_END("invoke_model");
   return true;
+} */
+
+
+bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
+    DURATION_START();
+
+    if (!interpreter_) {
+        ESP_LOGE(TAG, "Interpreter not initialized");
+        return false;
+    }
+
+    TfLiteTensor* input = input_tensor();
+    if (!input) {
+        ESP_LOGE(TAG, "No input tensor available");
+        return false;
+    }
+
+    // Detailed input tensor logging
+    ESP_LOGD(TAG, "Input tensor details:");
+    ESP_LOGD(TAG, "  - Type: %d", input->type);
+    ESP_LOGD(TAG, "  - Bytes: %d", input->bytes);
+    ESP_LOGD(TAG, "  - Dimensions: %d", input->dims->size);
+    for (int i = 0; i < input->dims->size; i++) {
+        ESP_LOGD(TAG, "    - dim[%d]: %d", i, input->dims->data[i]);
+    }
+
+    ESP_LOGD(TAG, "Model expects input size: %d bytes (dims: %dx%dx%d)", 
+            input->bytes, 
+            input->dims->data[1], 
+            input->dims->data[2],
+            input->dims->data[3]);
+    ESP_LOGD(TAG, "Provided input size: %zu bytes", input_size);
+
+    // Validate input size
+    if (input->bytes != input_size) {
+        ESP_LOGE(TAG, "Input size mismatch! Model expects %d bytes, got %zu bytes",
+                input->bytes, input_size);
+        return false;
+    }
+
+    // Copy input data
+    std::memcpy(input->data.uint8, input_data, input_size);
+    ESP_LOGD(TAG, "Input data copied successfully");
+
+    // Perform inference
+    TfLiteStatus invoke_status = interpreter_->Invoke();
+    if (invoke_status != kTfLiteOk) {
+        ESP_LOGE(TAG, "Model invocation failed with status: %d", invoke_status);
+        return false;
+    }
+    ESP_LOGD(TAG, "Inference completed successfully");
+
+    // Get output tensor
+    TfLiteTensor* output = output_tensor();
+    if (!output) {
+        ESP_LOGE(TAG, "No output tensor available");
+        return false;
+    }
+
+    // Detailed output tensor logging
+    ESP_LOGD(TAG, "Output tensor details:");
+    ESP_LOGD(TAG, "  - Type: %d", output->type);
+    ESP_LOGD(TAG, "  - Bytes: %d", output->bytes);
+    ESP_LOGD(TAG, "  - Dimensions: %d", output->dims->size);
+    for (int i = 0; i < output->dims->size; i++) {
+        ESP_LOGD(TAG, "    - dim[%d]: %d", i, output->dims->data[i]);
+    }
+
+    // Store output references
+    model_output_ = output->data.f;
+    output_size_ = output->dims->data[1]; // Assuming [1, N] shape
+    
+    ESP_LOGD(TAG, "Model output stored - %d classes available", output_size_);
+    DURATION_END("ModelHandler::invoke_model");
+
+    return true;
 }
+
+// const float* ModelHandler::get_output() const {
+    // return model_output_;
+// }
+
+// int ModelHandler::get_output_size() const {
+    // return output_size_;
+// }
 
 size_t ModelHandler::get_arena_peak_bytes() const {
   return interpreter_ ? interpreter_->arena_used_bytes() : 0;

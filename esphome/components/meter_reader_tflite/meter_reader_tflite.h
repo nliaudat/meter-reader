@@ -16,6 +16,8 @@
 #include <vector>
 #include <string>
 #include <atomic>
+#include <mutex> // needs CONFIG_FREERTOS_SUPPORT_STATIC_ALLOCATION=y # for frame_mutex_ in meter_reader_tflite.*
+// #include <numeric> // for std::accumulate
 
 
 #define DEBUG_DURATION  // Comment this out to disable duration debugging
@@ -75,7 +77,10 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   bool image_requested_ = false;
   void report_memory_status();
   size_t get_arena_peak_bytes() const;
-  void process_full_image();
+  // void process_full_image();
+  void process_full_image(std::shared_ptr<camera::CameraImage> frame);
+  // bool process_model_result(const ProcessedImageResult& result, float* value, float* confidence);
+  bool process_model_result(const ImageProcessor::ProcessResult& result, float* value, float* confidence);
   float combine_readings(const std::vector<float> &readings);
   // void preprocess_image(std::shared_ptr<camera::CameraImage> image);
 
