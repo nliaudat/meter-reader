@@ -88,7 +88,7 @@ async def to_code(config):
     cg.add_build_flag("-DTF_LITE_STATIC_MEMORY")
     cg.add_build_flag("-DTF_LITE_DISABLE_X86_NEON")
     cg.add_build_flag("-DESP_NN")
-    cg.add_build_flag("-DUSE_ESP_DL")
+    # cg.add_build_flag("-DUSE_ESP_DL")
     cg.add_build_flag("-DUSE_ESP32_CAMERA_CONV")
 
     var = cg.new_Pvariable(config[CONF_ID])

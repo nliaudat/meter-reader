@@ -3,6 +3,9 @@
 #include "debug_utils.h"
 #include <cmath>
 
+
+
+
 namespace esphome {
 namespace meter_reader_tflite {
 
@@ -83,7 +86,7 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
   return true;
 }
 
-bool ModelHandler::validate_model_config() {
+/* bool ModelHandler::validate_model_config() {
   auto input_shape = input_tensor()->dims;
   if (input_shape->size != 4) {
     ESP_LOGE(TAG, "Unsupported input shape dimension: %d", input_shape->size);
@@ -108,7 +111,29 @@ bool ModelHandler::validate_model_config() {
   }
 
   return true;
+} */
+
+bool ModelHandler::validate_model_config() {
+    auto* input = input_tensor();
+    if (!input) return false;
+
+    // Log actual model requirements
+    ESP_LOGI(TAG, "Model input requirements:");
+    ESP_LOGI(TAG, "  Dimensions: %d x %d x %d",
+            input->dims->data[1], 
+            input->dims->data[2],
+            input->dims->data[3]);
+    ESP_LOGI(TAG, "  Type: %s", 
+            input->type == kTfLiteUInt8 ? "uint8" : "float32");
+    ESP_LOGI(TAG, "  Bytes required: %d", input->bytes);
+
+    // Update config with ACTUAL model dimensions
+    config_.input_size = {input->dims->data[1], input->dims->data[2]};
+    config_.input_channels = input->dims->data[3];
+    
+    return true;
 }
+
 
 float ModelHandler::process_output(const float* output_data) const {
   if (config_.output_processing == "direct_class") {

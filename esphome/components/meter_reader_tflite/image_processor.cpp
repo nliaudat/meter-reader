@@ -4,6 +4,8 @@
 #include "managed_components/espressif__esp32-camera/conversions/include/img_converters.h"
 #include <algorithm>
 
+    // Model Expects: 7680 bytes (likely 32x32x3 = 3072 uint8 elements)
+    // image : 1920 bytes (32x20x3 = 1920 uint8 elements)
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -187,7 +189,10 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
     const int model_width = model_handler_->get_input_width(); // 32
     const int model_height = model_handler_->get_input_height(); // 20
     const int model_channels = model_handler_->get_input_channels(); // 3
+	
 	const size_t required_size = model_width * model_height * model_channels;
+	ESP_LOGD(TAG, "Model requires %dx%dx%d (%zu bytes)", 
+            model_width, model_height, model_channels, required_size);
     
     UniqueBufferPtr buffer = allocate_image_buffer(required_size);
     if (!buffer) return ProcessResult(nullptr, 0);
