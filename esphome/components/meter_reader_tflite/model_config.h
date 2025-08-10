@@ -24,9 +24,9 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
             .description = "dig-class100-0173",
             .output_processing = "softmax_scale10",
             .scale_factor = 10.0f,
-            .input_type = "uint8",  // Quantized models use uint8 "float32",
+            .input_type = "float32",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-			.input_size = {32, 32}, 
+			.input_size = {32, 20}, 
 			.normalize = false //.normalize = false      // Quantization handles scaling 
         }
     },
@@ -35,9 +35,9 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
             .description = "dig-cont_0900",
             .output_processing = "softmax",
             .scale_factor = 1.0f,
-            .input_type = "uint8",  // Quantized models use uint8 "float32",
+            .input_type = "float32",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-			.input_size = {32, 32}, 
+			.input_size = {32, 20}, 
 			.normalize = false //.normalize = false      // Quantization handles scaling 
         }
     },
@@ -46,9 +46,9 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
             .description = "dig-cont_0810",
             .output_processing = "softmax",
             .scale_factor = 1.0f,
-            .input_type = "uint8",  // Quantized models use uint8 "float32",
+            .input_type = "float32",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-			.input_size = {32, 32},
+			.input_size = {32, 20},
 			.normalize = false //.normalize = false      // Quantization handles scaling 
         }
     },
