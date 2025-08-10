@@ -147,110 +147,9 @@ float ModelHandler::process_output(const float* output_data) const {
   }
 }
 
-/* bool ModelHandler::invoke_model(const uint8_t *input_data, size_t input_size,
-                              float* output_value, float* output_confidence) {
-								  
-
-    // Resize input tensor dynamically
-    // interpreter_->ResizeInputTensor(0, {1, 80, 32, 3}); // 3 channels
-    // interpreter_->AllocateTensors();
-	
-	DURATION_START();
-
-  if (!interpreter_) {
-    ESP_LOGE(TAG, "Interpreter not initialized");
-    return false;
-  }
-
-  TfLiteTensor *input = input_tensor();
-  
-  if (!input) {
-    ESP_LOGE(TAG, "No input tensor available");
-    return false;
-  }
-  ESP_LOGD(TAG, "Input tensor details:");
-  ESP_LOGD(TAG, "  - Type: %d", input->type);
-  ESP_LOGD(TAG, "  - Bytes: %d", input->bytes);
-  ESP_LOGD(TAG, "  - Dimensions: %d", input->dims->size);
-
-  for (int i = 0; i < input->dims->size; i++) {
-    ESP_LOGD(TAG, "    - dim[%d]: %d", i, input->dims->data[i]);
-  }
-  
-
-  
-  ESP_LOGD(TAG, "Model expects input size: %d bytes (dims: %dx%dx%d)", 
-          input->bytes, 
-          input->dims->data[1], 
-          input->dims->data[2],
-          input->dims->data[3]);
-  ESP_LOGD(TAG, "Provided input size: %zu bytes", input_size);
-  
-  
-    if (!input || input->bytes != input_size) {
-    ESP_LOGE(TAG, "Input tensor size mismatch (%d != %zu)", input->bytes, input_size);
-    return false;
-  }
-  
-    // Validate input size
-  if (input->bytes != input_size) {
-    ESP_LOGE(TAG, "Input size mismatch! Model expects %d bytes, got %zu bytes",
-            input->bytes, input_size);
-    return false;
-  }
- 
-  // Quick copy and invoke
-  memcpy(input->data.data, input_data, input_size);
-  
-  if (interpreter_->Invoke() != kTfLiteOk) {
-    ESP_LOGE(TAG, "Model invocation failed");
-    return false;
-  }
-
-  TfLiteTensor *output = output_tensor();
-  
-  if (!output) {
-    ESP_LOGE(TAG, "No output tensor available");
-    return false;
-  }
-  ESP_LOGD(TAG, "Output tensor details:");
-  ESP_LOGD(TAG, "  - Type: %d", output->type);
-  ESP_LOGD(TAG, "  - Bytes: %d", output->bytes);
-  ESP_LOGD(TAG, "  - Dimensions: %d", output->dims->size);
-
-  for (int i = 0; i < output->dims->size; i++) {
-    ESP_LOGD(TAG, "    - dim[%d]: %d", i, output->dims->data[i]);
-  }
- 
-  
-  if (!output || output->bytes < 10 * sizeof(float)) {
-    ESP_LOGE(TAG, "Invalid output tensor");
-    return false;
-  }
-  
-  
-
-  float* output_data = reinterpret_cast<float*>(output->data.data);
-  *output_value = process_output(output_data);
-  
-  // Calculate confidence (simple max for now)
-  if (output_confidence) {
-    float max_conf = 0.0f;
-    for (int i = 0; i < 10; i++) {
-      if (output_data[i] > max_conf) {
-        max_conf = output_data[i];
-      }
-    }
-    *output_confidence = max_conf;
-	ESP_LOGI(TAG, "Output confidence: %.2f", *output_confidence);
-  }
-
-  DURATION_END("invoke_model");
-  return true;
-} */
-
 
 bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
+	
     DURATION_START();
 
     if (!interpreter_) {
@@ -288,7 +187,31 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
     } */
 
     // Copy input data
-    std::memcpy(input->data.uint8, input_data, input_size);
+    // std::memcpy(input->data.uint8, input_data, input_size);
+	
+	
+	// conversion for float32 models
+    if (input->type == kTfLiteFloat32) {
+        float* dst = input->data.f;
+        const uint8_t* src = input_data;
+        size_t elements = input_size / sizeof(uint8_t);
+        
+        // Normalize uint8 [0,255] to float32 [0,1]
+        for (size_t i = 0; i < elements; i++) {
+            dst[i] = static_cast<float>(src[i]) / 255.0f;
+        }
+    } 
+    else {
+        // For quantized models (uint8)
+        std::memcpy(input->data.uint8, input_data, input_size);
+    }
+	
+	ESP_LOGD(TAG, "First 5 normalized input values:");
+	for (int i = 0; i < 5; i++) {
+		ESP_LOGD(TAG, "  Input[%d]: %.4f", i, input->data.f[i]);
+	}
+	
+	
     ESP_LOGD(TAG, "Input data copied successfully");
 
     // Perform inference
