@@ -337,6 +337,7 @@ void MeterReaderTFLite::set_model_config(const std::string &model_identifier) {
 }
 
 bool MeterReaderTFLite::load_model() {
+	
   if (!allocate_tensor_arena()) {
 	  ESP_LOGE(TAG, "Tensor arena allocation failed");
 	  this->print_debug_info();

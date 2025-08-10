@@ -13,9 +13,9 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
             .description = "dig-class100-0180",
             .output_processing = "softmax_scale10",
             .scale_factor = 10.0f,
-            .input_type = "float32",
+            .input_type = "uint8",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-			.normalize = true
+			.normalize = false //.normalize = false      // Quantization handles scaling 
         }
     },
     {"class100-0173", 
@@ -23,9 +23,9 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
             .description = "dig-class100-0173",
             .output_processing = "softmax_scale10",
             .scale_factor = 10.0f,
-            .input_type = "float32",
+            .input_type = "uint8",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-			.normalize = true
+			.normalize = false //.normalize = false      // Quantization handles scaling 
         }
     },
     {"class10-0900", 
@@ -33,9 +33,9 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
             .description = "dig-cont_0900",
             .output_processing = "softmax",
             .scale_factor = 1.0f,
-            .input_type = "float32",
+            .input_type = "uint8",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-			.normalize = true
+			.normalize = false //.normalize = false      // Quantization handles scaling 
         }
     },
     {"class10-0810", 
@@ -43,9 +43,9 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
             .description = "dig-cont_0810",
             .output_processing = "softmax",
             .scale_factor = 1.0f,
-            .input_type = "float32",
+            .input_type = "uint8",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-			.normalize = true
+			.normalize = false //.normalize = false      // Quantization handles scaling 
         }
     },
     {"mnist", 

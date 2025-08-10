@@ -187,46 +187,34 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
     const int model_width = model_handler_->get_input_width(); // 32
     const int model_height = model_handler_->get_input_height(); // 20
     const int model_channels = model_handler_->get_input_channels(); // 3
+	const size_t required_size = model_width * model_height * model_channels;
     
-    // Calculate required buffer size (32x20x3 = 1920 bytes)
-    const size_t required_size = model_width * model_height * model_channels;
-    
-    // Allocate buffer using our PSRAM-aware allocator
     UniqueBufferPtr buffer = allocate_image_buffer(required_size);
-    if (!buffer) {
-        ESP_LOGE(TAG, "Failed to allocate buffer for scaled region");
-        return ProcessResult(nullptr, 0);
-    }
+    if (!buffer) return ProcessResult(nullptr, 0);
+
+    uint8_t* raw_buffer = buffer.get();
+    const bool is_quantized = model_handler_->is_model_quantized();
 
     // Calculate scaling factors
     const float width_scale = static_cast<float>(zone.x2 - zone.x1) / model_width;
     const float height_scale = static_cast<float>(zone.y2 - zone.y1) / model_height;
 
-    // Process each output pixel
-    uint8_t* raw_buffer = buffer.get();
     for (int y = 0; y < model_height; y++) {
         for (int x = 0; x < model_width; x++) {
-            // Calculate source coordinates with proper scaling
             const int src_x = zone.x1 + static_cast<int>(x * width_scale);
             const int src_y = zone.y1 + static_cast<int>(y * height_scale);
-            
-            // Handle different input formats
             const size_t src_pixel_index = (src_y * src_width + src_x) * bytes_per_pixel_;
             const size_t dst_pixel_index = (y * model_width + x) * model_channels;
-            
-            if (bytes_per_pixel_ == 1) { // Grayscale -> RGB expansion
+
+            if (bytes_per_pixel_ == 1) { // Grayscale
                 const uint8_t val = src_data[src_pixel_index];
-				// float val = src_data[src_pixel_index] / 255.0f; // Normalize
-                raw_buffer[dst_pixel_index] = val;     // R
-                raw_buffer[dst_pixel_index+1] = val;   // G
-                raw_buffer[dst_pixel_index+2] = val;   // B
-            }
-            else { // RGB or other multi-channel formats
+                raw_buffer[dst_pixel_index] = val;
+                raw_buffer[dst_pixel_index+1] = val;
+                raw_buffer[dst_pixel_index+2] = val;
+            } else { // RGB
                 for (int c = 0; c < model_channels; c++) {
-                    raw_buffer[dst_pixel_index + c] = src_data[src_pixel_index + (c % bytes_per_pixel_)];
-					//normalize
-					// float val = src_data[src_pixel_index + (c % bytes_per_pixel_)] / 255.0f;
-					// raw_buffer[dst_pixel_index + c] = val;
+                    raw_buffer[dst_pixel_index + c] = 
+                        src_data[src_pixel_index + (c % bytes_per_pixel_)];
                 }
             }
         }

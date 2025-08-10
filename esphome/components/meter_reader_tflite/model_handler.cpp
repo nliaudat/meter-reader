@@ -62,6 +62,24 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
   }
 
   ESP_LOGI(TAG, "Model loaded successfully");
+  
+  
+   if (tflite_model_->subgraphs()->Get(0)->operators()->size() == 0) {
+        ESP_LOGE(TAG, "Model has no operators!");
+        return false;
+    }
+    
+    // Check quantization
+    // auto* input_tensor = interpreter_->input_tensor(0);
+    // if (input_tensor->quantization.type() == kTfLiteNoQuantization) {
+        // ESP_LOGW(TAG, "Model appears unquantized but config expects quantized!");
+    // }
+    
+    // ESP_LOGI(TAG, "Input type: %s", 
+            // input_tensor->type == kTfLiteUInt8 ? "uint8 (quantized)" : "float32");
+  
+  
+  
   return true;
 }
 
@@ -149,6 +167,97 @@ float ModelHandler::process_output(const float* output_data) const {
 
 
 bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
+    DURATION_START();
+
+    if (!interpreter_ || !input_tensor()) {
+        ESP_LOGE(TAG, "Interpreter or input tensor not available");
+        return false;
+    }
+
+    TfLiteTensor* input = input_tensor();
+    
+    // Validate input size
+    if (input_size != input->bytes) {
+        ESP_LOGE(TAG, "Input size mismatch! Model needs %d, got %zu", 
+                input->bytes, input_size);
+        return false;
+    }
+
+    // Handle different input types
+    if (input->type == kTfLiteUInt8) {
+        // Quantized model processing
+        const float input_scale = input->params.scale;
+        const int input_zero_point = input->params.zero_point;
+        
+        ESP_LOGD(TAG, "Quantized input - scale: %.6f, zero_point: %d",
+                input_scale, input_zero_point);
+        
+        memcpy(input->data.uint8, input_data, input_size);
+        
+        // Debug log first 5 values
+        ESP_LOGD(TAG, "First 5 quantized inputs:");
+        for (int i = 0; i < 5 && i < input_size; i++) {
+            ESP_LOGD(TAG, "  [%d]: %u (%.4f)", i, input->data.uint8[i],
+                    (input->data.uint8[i] - input_zero_point) * input_scale);
+        }
+    } 
+    else if (input->type == kTfLiteFloat32) {
+        // Float model processing
+        if (config_.normalize) {
+            // Normalize uint8 [0,255] to float32 [0,1]
+            float* dst = input->data.f;
+            for (size_t i = 0; i < input_size; i++) {
+                dst[i] = static_cast<float>(input_data[i]) / 255.0f;
+            }
+            
+            ESP_LOGD(TAG, "First 5 normalized inputs:");
+            for (int i = 0; i < 5 && i < input_size; i++) {
+                ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
+            }
+        } else {
+            // Direct copy (if model expects 0-255 range)
+            memcpy(input->data.data, input_data, input_size);
+        }
+    }
+
+    // Perform inference
+    if (interpreter_->Invoke() != kTfLiteOk) {
+        ESP_LOGE(TAG, "Inference failed");
+        return false;
+    }
+
+    // Handle output
+    TfLiteTensor* output = output_tensor();
+    if (!output) {
+        ESP_LOGE(TAG, "No output tensor");
+        return false;
+    }
+
+    if (output->type == kTfLiteUInt8) {
+        // Prepare dequantized output buffer
+        dequantized_output_.resize(output->dims->data[1]);
+        const float scale = output->params.scale;
+        const int zero_point = output->params.zero_point;
+        
+        for (int i = 0; i < output->dims->data[1]; i++) {
+            dequantized_output_[i] = 
+                (output->data.uint8[i] - zero_point) * scale;
+        }
+        model_output_ = dequantized_output_.data();
+    } 
+    else {
+        model_output_ = output->data.f;
+    }
+
+    output_size_ = output->dims->data[1];
+    DURATION_END("ModelHandler::invoke_model");
+    return true;
+}
+
+
+
+/*
+bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
 	
     DURATION_START();
 
@@ -158,12 +267,13 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
     }
 
     TfLiteTensor* input = input_tensor();
+	
     if (!input) {
         ESP_LOGE(TAG, "No input tensor available");
         return false;
     }
 
-/*     // Detailed input tensor logging
+    // Detailed input tensor logging
     ESP_LOGD(TAG, "Input tensor details:");
     ESP_LOGD(TAG, "  - Type: %d", input->type);
     ESP_LOGD(TAG, "  - Bytes: %d", input->bytes);
@@ -184,32 +294,42 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         ESP_LOGE(TAG, "Input size mismatch! Model expects %d bytes, got %zu bytes",
                 input->bytes, input_size);
         return false;
-    } */
+    } 
 
     // Copy input data
     // std::memcpy(input->data.uint8, input_data, input_size);
 	
 	
-	// conversion for float32 models
-    if (input->type == kTfLiteFloat32) {
-        float* dst = input->data.f;
-        const uint8_t* src = input_data;
-        size_t elements = input_size / sizeof(uint8_t);
+	//const int required_size = input->bytes; // Get required size from model
+	
+	
+	if (input->type == kTfLiteUInt8) {
+        // Quantized model - direct copy with quantization params
+        const float input_scale = input->params.scale;
+        const int input_zero_point = input->params.zero_point;
         
-        // Normalize uint8 [0,255] to float32 [0,1]
-        for (size_t i = 0; i < elements; i++) {
-            dst[i] = static_cast<float>(src[i]) / 255.0f;
+        ESP_LOGD(TAG, "Quant params - scale: %.4f, zero_point: %d", 
+                input_scale, input_zero_point);
+        
+        // Verify exact size match
+        if (input_size != input->bytes) {
+            ESP_LOGE(TAG, "Input size mismatch! Model needs %d, got %zu", 
+                    input->bytes, input_size);
+            return false;
         }
-    } 
-    else {
-        // For quantized models (uint8)
-        std::memcpy(input->data.uint8, input_data, input_size);
+        
+        // Direct memcpy for quantized data
+        memcpy(input->data.uint8, input_data, input_size);
+        
+        // Debug first 10 values
+        ESP_LOGD(TAG, "First 10 quantized input values:");
+        for (int i = 0; i < 10 && i < input_size; i++) {
+            ESP_LOGD(TAG, "  Input[%d]: %u (float: %.4f)", i, 
+                    input->data.uint8[i],
+                    (input->data.uint8[i] - input_zero_point) * input_scale);
+        }
     }
 	
-	ESP_LOGD(TAG, "First 5 normalized input values:");
-	for (int i = 0; i < 5; i++) {
-		ESP_LOGD(TAG, "  Input[%d]: %.4f", i, input->data.f[i]);
-	}
 	
 	
     ESP_LOGD(TAG, "Input data copied successfully");
@@ -222,10 +342,10 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
     }
 	
 	// Log first 10 input values
-    ESP_LOGD(TAG, "Debug : First 10 input values:");
-    for (int i = 0; i < 10 && i < input_size/sizeof(float); i++) {
-        ESP_LOGD(TAG, "  Input[%d]: %.4f", i, reinterpret_cast<const float*>(input_data)[i]);
-    }
+    // ESP_LOGD(TAG, "Debug : First 10 input values:");
+    // for (int i = 0; i < 10 && i < input_size/sizeof(float); i++) {
+        // ESP_LOGD(TAG, "  Input[%d]: %.4f", i, reinterpret_cast<const float*>(input_data)[i]);
+    // }
 	
 	
     ESP_LOGD(TAG, "Inference completed successfully");
@@ -255,6 +375,8 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
 
     return true;
 }
+*/
+
 
 // const float* ModelHandler::get_output() const {
     // return model_output_;
