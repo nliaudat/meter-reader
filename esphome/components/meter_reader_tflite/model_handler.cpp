@@ -264,7 +264,7 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         return false;
     }
 
-    // Detailed input tensor logging
+/*     // Detailed input tensor logging
     ESP_LOGD(TAG, "Input tensor details:");
     ESP_LOGD(TAG, "  - Type: %d", input->type);
     ESP_LOGD(TAG, "  - Bytes: %d", input->bytes);
@@ -285,7 +285,7 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         ESP_LOGE(TAG, "Input size mismatch! Model expects %d bytes, got %zu bytes",
                 input->bytes, input_size);
         return false;
-    }
+    } */
 
     // Copy input data
     std::memcpy(input->data.uint8, input_data, input_size);
