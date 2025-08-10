@@ -70,19 +70,26 @@ async def to_code(config):
     )
     
     # Get pixel format from substitutions
-    pixel_format = CORE.config['substitutions'].get('camera_pixel_format', 'RGB888')
+    # pixel_format = CORE.config['substitutions'].get('camera_pixel_format', 'RGB888')
     
     # If pixel format is JPEG, add JPEG decoder component and define
-    if pixel_format == "JPEG":
-        cg.add_define("USE_JPEG")
-        esp32.add_idf_component(
-            name="espressif/esp_jpeg",
-            ref="1.3.1"
-        )
+    # if pixel_format == "JPEG":
+        # cg.add_define("USE_JPEG")
+        # esp32.add_idf_component(
+            # name="espressif/esp_jpeg",
+            # ref="1.3.1"
+        # )
+        
+    esp32.add_idf_component(
+        name="espressif/esp-dl",
+        ref="3.1.5"  # image preprocessor : https://github.com/espressif/esp-dl/blob/master/esp-dl/vision/image/dl_image_preprocessor.cpp
+    )
         
     cg.add_build_flag("-DTF_LITE_STATIC_MEMORY")
     cg.add_build_flag("-DTF_LITE_DISABLE_X86_NEON")
     cg.add_build_flag("-DESP_NN")
+    cg.add_build_flag("-DUSE_ESP_DL")
+    cg.add_build_flag("-DUSE_ESP32_CAMERA_CONV")
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)

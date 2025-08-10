@@ -50,7 +50,7 @@ void MeterReaderTFLite::setup_camera_callback() {
         if (frame_requested_) {
             current_frame_ = image;
             frame_requested_ = false;
-            ESP_LOGD(TAG, "Received new frame");
+            ESP_LOGD(TAG, "Received new frame from callback");
         }
         // Else silently drop the frame
     });
@@ -76,7 +76,7 @@ void MeterReaderTFLite::update() {
 
     // Request new frame if needed (outside mutex lock)
     if (should_request_frame) {
-        ESP_LOGD(TAG, "Requesting new frame");
+        ESP_LOGD(TAG, "Requesting new frame from camera to process in tflite");
         camera_->request_image(camera::IDLE);
         // Since request_image() returns void, we assume the request was made
         // and rely on the callback to handle frame_requested_ state
@@ -93,6 +93,7 @@ void MeterReaderTFLite::update() {
             
             // Release mutex before processing
             frame_mutex_.unlock();
+			ESP_LOGD(TAG, "Processing image");
             process_full_image(frame);
             frame_mutex_.lock();
         }
