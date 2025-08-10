@@ -215,15 +215,18 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
             const size_t dst_pixel_index = (y * model_width + x) * model_channels;
             
             if (bytes_per_pixel_ == 1) { // Grayscale -> RGB expansion
-                const uint8_t val = src_data[src_pixel_index];
+                // const uint8_t val = src_data[src_pixel_index];
+				float val = src_data[src_pixel_index] / 255.0f; // Normalize
                 raw_buffer[dst_pixel_index] = val;     // R
                 raw_buffer[dst_pixel_index+1] = val;   // G
                 raw_buffer[dst_pixel_index+2] = val;   // B
             }
             else { // RGB or other multi-channel formats
                 for (int c = 0; c < model_channels; c++) {
-                    raw_buffer[dst_pixel_index + c] = 
-                        src_data[src_pixel_index + (c % bytes_per_pixel_)];
+                    // raw_buffer[dst_pixel_index + c] = src_data[src_pixel_index + (c % bytes_per_pixel_)];
+					//normalize
+					float val = src_data[src_pixel_index + (c % bytes_per_pixel_)] / 255.0f;
+					raw_buffer[dst_pixel_index + c] = val;
                 }
             }
         }

@@ -56,9 +56,12 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void set_camera_image_format(int width, int height, const std::string &pixel_format);
   void set_camera(esp32_camera::ESP32Camera *camera) { camera_ = camera; }
   void set_model_config(const std::string &model_type);
-  // void print_debug_info() {
-    // DebugUtils::print_debug_info(*this);
-  // }
+  void dump_debug_info() {
+    this->print_debug_info();
+  }
+  static void register_service(MeterReaderTFLite *comp) {
+        comp->dump_debug_info();
+  }
   void print_debug_info();
   
   int get_model_input_width() const { return model_handler_.get_input_width(); }

@@ -15,12 +15,14 @@ void MeterReaderTFLite::setup() {
   
   if (camera_width_ == 0 || camera_height_ == 0) {
     ESP_LOGE(TAG, "Camera dimensions not set!");
+	this->print_debug_info();
     mark_failed();
     return;
   }
   
   if (!camera_) {
     ESP_LOGE(TAG, "No camera configured!");
+	this->print_debug_info();
     mark_failed();
     return;
   }
@@ -28,19 +30,28 @@ void MeterReaderTFLite::setup() {
   // Setup camera callback immediately
   setup_camera_callback();
 
-  // Rest of setup...
+  // delay model loading for 10 sec
+  ESP_LOGI(TAG, "Model loading delayed for 10 seconds ...");
   this->set_timeout(10000, [this]() {
     if (!this->load_model()) {
       ESP_LOGE(TAG, "Failed to load model");
+	  this->print_debug_info();
       this->mark_failed();
       return;
     }
     this->model_loaded_ = true;
     
+	ESP_LOGI(TAG, "Setting up Image Processor ...");
     image_processor_ = std::make_unique<ImageProcessor>(
       ImageProcessorConfig{camera_width_, camera_height_, pixel_format_},
       &model_handler_
     );
+	
+	ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
+	
+  // Add debug info after successful initialization
+  this->print_debug_info();
+	
   });
 }
 
@@ -107,6 +118,7 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
     // Validate input frame
     if (!frame || !frame->get_data_buffer() || frame->get_data_length() == 0) {
         ESP_LOGE(TAG, "Invalid frame received for processing");
+		this->print_debug_info();
         DURATION_END("process_full_image (invalid frame)");
         return;
     }
@@ -139,6 +151,7 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
                     value, confidence);
         } else {
             ESP_LOGE(TAG, "Model result processing failed for zone");
+			this->print_debug_info();
             processing_success = false;
             break;
         }
@@ -159,8 +172,15 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
         if (value_sensor_) {
             value_sensor_->publish_state(final_reading);
         }
+		
+		if (debug_mode_) {
+		  this->print_debug_info();
+		}
+		
+		
     } else {
         ESP_LOGE(TAG, "Frame processing failed");
+		this->print_debug_info();
     }
 
     // Memory cleanup
@@ -172,6 +192,7 @@ bool MeterReaderTFLite::process_model_result(const ImageProcessor::ProcessResult
     // Invoke the model with the processed image data
     if (!model_handler_.invoke_model(result.data.get(), result.size)) {
         ESP_LOGE(TAG, "Model invocation failed");
+		this->print_debug_info();
         return false;
     }
 
@@ -179,6 +200,7 @@ bool MeterReaderTFLite::process_model_result(const ImageProcessor::ProcessResult
     const float* output = model_handler_.get_output();
     if (!output) {
         ESP_LOGE(TAG, "Failed to get model output");
+		this->print_debug_info();
         return false;
     }
 
@@ -317,6 +339,7 @@ void MeterReaderTFLite::set_model_config(const std::string &model_identifier) {
 bool MeterReaderTFLite::load_model() {
   if (!allocate_tensor_arena()) {
 	  ESP_LOGE(TAG, "Tensor arena allocation failed");
+	  this->print_debug_info();
     return false;
   }
 
@@ -498,6 +521,10 @@ void MeterReaderTFLite::print_debug_info() {
                 model_handler_.get_arena_peak_bytes(),
                 tensor_arena_size_actual_,
                 "bytes");
+		ESP_LOGI(TAG, "│ Input Type:         %-23s │", 
+                model_handler_.get_config().input_type.c_str());
+        ESP_LOGI(TAG, "│ Normalize Input:    %-23s │", 
+                model_handler_.get_config().normalize ? "YES" : "NO");
     } else {
         ESP_LOGI(TAG, "│ Model:              %-23s │", "NOT LOADED");
     }

@@ -80,10 +80,10 @@ async def to_code(config):
             # ref="1.3.1"
         # )
         
-    esp32.add_idf_component(
-        name="espressif/esp-dl",
-        ref="3.1.5"  # image preprocessor : https://github.com/espressif/esp-dl/blob/master/esp-dl/vision/image/dl_image_preprocessor.cpp
-    )
+    # esp32.add_idf_component( ## not used actually
+        # name="espressif/esp-dl",
+        # ref="3.1.5"  # image preprocessor : https://github.com/espressif/esp-dl/blob/master/esp-dl/vision/image/dl_image_preprocessor.cpp
+    # )
         
     cg.add_build_flag("-DTF_LITE_STATIC_MEMORY")
     cg.add_build_flag("-DTF_LITE_DISABLE_X86_NEON")
@@ -132,6 +132,18 @@ async def to_code(config):
     # Set camera format
     cg.add(var.set_camera_image_format(width, height, pixel_format))
     
+    # register debug service (called by service: meter_reader_tflite_my_reader_debug)
+    cg.add_define("USE_SERVICE_DEBUG")
+    var = await cg.get_variable(config[CONF_ID])
+    template = """
+    register_service("%s_debug", 
+        [](%s *comp) { comp->dump_debug_info(); },
+        %s);
+    """ % (config[CONF_ID], 
+           "esphome::meter_reader_tflite::MeterReaderTFLite",
+           config[CONF_ID])
+           
+
 
     # if config.get(CONF_DEBUG, False): # Default to False if not specified
         # cg.add_define("DEBUG_METER_READER_TFLITE")

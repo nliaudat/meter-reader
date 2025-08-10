@@ -297,6 +297,14 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         ESP_LOGE(TAG, "Model invocation failed with status: %d", invoke_status);
         return false;
     }
+	
+	// Log first 10 input values
+    ESP_LOGD(TAG, "Debug : First 10 input values:");
+    for (int i = 0; i < 10 && i < input_size/sizeof(float); i++) {
+        ESP_LOGD(TAG, "  Input[%d]: %.4f", i, reinterpret_cast<const float*>(input_data)[i]);
+    }
+	
+	
     ESP_LOGD(TAG, "Inference completed successfully");
 
     // Get output tensor
