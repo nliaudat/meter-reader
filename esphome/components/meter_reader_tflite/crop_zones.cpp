@@ -63,5 +63,17 @@ void CropZoneHandler::parse_zones(const std::string &zones_json) {
   ESP_LOGI(TAG, "Parsed %d crop zones", zones_.size());
 }
 
+void CropZoneHandler::set_default_zone(int width, int height) {
+    zones_.clear();
+    zones_.push_back({
+        width * 0.1f,    // x1 - 10% from left
+        height * 0.2f,   // y1 - 20% from top
+        width * 0.9f,    // x2 - 10% from right
+        height * 0.8f    // y2 - 20% from bottom
+    });
+    ESP_LOGI(TAG, "Set default crop zone: [%d,%d,%d,%d]", 
+             zones_[0].x1, zones_[0].y1, zones_[0].x2, zones_[0].y2);
+}
+
 }  // namespace meter_reader_tflite
 }  // namespace esphome

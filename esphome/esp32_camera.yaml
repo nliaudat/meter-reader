@@ -49,11 +49,15 @@ esp32_camera:
   # idle_framerate: 0.1fps # 10sec
   max_framerate: ${camera_max_framerate} #1fps
   idle_framerate: ${camera_idle_framerate} #0.1fps # 10sec
-  # frame_buffer_count: 2
+  # frame_buffer_count: 2  # Double buffering at driver level
+  frame_buffer_location: PSRAM # DRAM # available in the release 2025.8.0
   
   ## new with https://github.com/esphome/esphome/pull/9496
-  pixel_format: ${camera_pixel_format}
-  frame_buffer_location: PSRAM
+  # pixel_format: ${camera_pixel_format} # only if new camera component
+  # frame_buffer_location: PSRAM # only if new camera component
+  
+  # task_stack_size: 8192
+  # frame_size: 8  # Reduced from default 16
 
   # The following parameters can be changed on the fly after the camera is started
   #  by calling update_camera_parameters() in lambda

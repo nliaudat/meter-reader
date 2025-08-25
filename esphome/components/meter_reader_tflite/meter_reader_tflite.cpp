@@ -9,18 +9,20 @@ namespace meter_reader_tflite {
 
 static const char *const TAG = "meter_reader_tflite";
 
-
+/*
 void MeterReaderTFLite::setup() {
   ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
   
   if (camera_width_ == 0 || camera_height_ == 0) {
     ESP_LOGE(TAG, "Camera dimensions not set!");
+	// this->print_debug_info();
     mark_failed();
     return;
   }
   
   if (!camera_) {
     ESP_LOGE(TAG, "No camera configured!");
+	// this->print_debug_info();
     mark_failed();
     return;
   }
@@ -28,35 +30,125 @@ void MeterReaderTFLite::setup() {
   // Setup camera callback immediately
   setup_camera_callback();
 
-  // Rest of setup...
+  // delay model loading for 10 sec
+  ESP_LOGI(TAG, "Model loading delayed for 10 seconds ...");
   this->set_timeout(10000, [this]() {
     if (!this->load_model()) {
       ESP_LOGE(TAG, "Failed to load model");
+	  this->print_debug_info();
       this->mark_failed();
       return;
     }
     this->model_loaded_ = true;
     
+	ESP_LOGI(TAG, "Setting up Image Processor ...");
     image_processor_ = std::make_unique<ImageProcessor>(
       ImageProcessorConfig{camera_width_, camera_height_, pixel_format_},
       &model_handler_
     );
+	
+	ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
+	
+  // Add debug info after successful initialization
+  this->print_debug_info();
+	
   });
+}
+
+*/
+
+void MeterReaderTFLite::setup() {
+    ESP_LOGI(TAG, "Setting up Meter Reader TFLite...");
+    
+    // Validate essential configuration first
+    if (camera_width_ == 0 || camera_height_ == 0) {
+        ESP_LOGE(TAG, "Camera dimensions not set!");
+        mark_failed();
+        return;
+    }
+    
+    if (!camera_) {
+        ESP_LOGE(TAG, "No camera configured!");
+        mark_failed();
+        return;
+    }
+	
+	    // Create frame queue (holds up to 2 frames)
+    frame_queue_ = xQueueCreate(1, sizeof(std::shared_ptr<camera::CameraImage>*));
+    if (!frame_queue_) {
+        ESP_LOGE(TAG, "Failed to create frame queue!");
+        mark_failed();
+        return;
+    }
+
+    // Setup camera callback immediately
+    setup_camera_callback();
+
+    // Delay model loading for 10 seconds with proper timeout handling
+    ESP_LOGI(TAG, "Model loading will begin in 10 seconds...");
+    
+
+    this->set_timeout(10000, [this]() {
+        ESP_LOGI(TAG, "Starting model loading...");
+        
+        if (!this->load_model()) {
+            ESP_LOGE(TAG, "Failed to load model");
+            this->print_debug_info();
+            this->mark_failed();
+            return;
+        }
+
+        this->model_loaded_ = true;
+        
+        ESP_LOGI(TAG, "Setting up Image Processor...");
+
+            image_processor_ = std::make_unique<ImageProcessor>(
+                ImageProcessorConfig{camera_width_, camera_height_, pixel_format_},
+                &model_handler_
+            );
+            
+            ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
+            this->print_debug_info();
+            
+            // Start periodic updates now that setup is complete
+            this->set_update_interval(this->get_update_interval());
+            
+
+    });
+
+
 }
 
 void MeterReaderTFLite::setup_camera_callback() {
     camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
-        std::lock_guard<std::mutex> lock(frame_mutex_);
-        if (frame_requested_) {
-            current_frame_ = image;
-            frame_requested_ = false;
-            ESP_LOGD(TAG, "Received new frame");
+        // Allocate copy on heap for queue
+        auto* frame_copy = new std::shared_ptr<camera::CameraImage>(image);
+        
+        // Try to send to queue (non-blocking)
+        if (xQueueSend(frame_queue_, &frame_copy, 0) != pdTRUE) {
+            delete frame_copy;  // Queue full, drop frame
+            ESP_LOGW(TAG, "Frame queue full - dropping frame");
         }
-        // Else silently drop the frame
     });
 }
 
+
 void MeterReaderTFLite::update() {
+    if (!model_loaded_ || !camera_) return;
+
+    std::shared_ptr<camera::CameraImage>* frame_ptr = nullptr;
+    if (xQueueReceive(frame_queue_, &frame_ptr, 0) == pdTRUE) {
+        std::shared_ptr<camera::CameraImage> frame = *frame_ptr;
+        delete frame_ptr;
+        
+        DURATION_START();
+        process_full_image(frame);
+        DURATION_END("process_full_image");
+    }
+}
+
+
+/* void MeterReaderTFLite::update() {
     // Early exit if system isn't ready
     if (!model_loaded_ || !camera_) {
         ESP_LOGW(TAG, "Update skipped - system not ready (model:%d, camera:%d)", 
@@ -76,7 +168,7 @@ void MeterReaderTFLite::update() {
 
     // Request new frame if needed (outside mutex lock)
     if (should_request_frame) {
-        ESP_LOGD(TAG, "Requesting new frame");
+        ESP_LOGD(TAG, "Requesting new frame from camera to process in tflite");
         camera_->request_image(camera::IDLE);
         // Since request_image() returns void, we assume the request was made
         // and rely on the callback to handle frame_requested_ state
@@ -93,12 +185,69 @@ void MeterReaderTFLite::update() {
             
             // Release mutex before processing
             frame_mutex_.unlock();
+			ESP_LOGD(TAG, "Processing image");
             process_full_image(frame);
             frame_mutex_.lock();
         }
     }
+} */
+
+
+/*
+void MeterReaderTFLite::update() {
+    // Early exit if system isn't ready
+    if (!model_loaded_ || !camera_) {
+        ESP_LOGW(TAG, "Update skipped - system not ready (model:%d, camera:%d)", 
+                model_loaded_, (camera_ != nullptr));
+        return;
+    }
+
+    // Check frame status under mutex
+    bool should_request_frame = false;
+    bool has_frame_to_process = false;
+    std::shared_ptr<camera::CameraImage> frame_to_process;
+    
+    {
+        std::lock_guard<std::mutex> lock(frame_mutex_);
+        
+        if (!current_frame_ && !frame_requested_) {
+            should_request_frame = true;
+            frame_requested_ = true;
+        }
+        else if (current_frame_) {
+            has_frame_to_process = true;
+            frame_to_process = std::move(current_frame_);
+            current_frame_.reset();
+        }
+    }
+
+    // Request new frame if needed
+    if (should_request_frame) {
+        ESP_LOGD(TAG, "Requesting new frame from camera");
+        camera_->request_image(camera::IDLE);
+        
+        // Set timeout for frame arrival
+        this->set_timeout(3000, [this]() {
+            std::lock_guard<std::mutex> lock(frame_mutex_);
+            if (frame_requested_) {
+                ESP_LOGW(TAG, "Frame not received within timeout");
+                frame_requested_ = false;
+            }
+        });
+        return;
+    }
+
+    // Process frame if available
+    if (has_frame_to_process) {
+        ESP_LOGD(TAG, "Processing available frame");
+        process_full_image(frame_to_process);
+    }
+    else {
+        ESP_LOGD(TAG, "No frame available to process");
+    }
 }
 
+*/
 
 void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> frame) {
     DURATION_START();
@@ -106,6 +255,7 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
     // Validate input frame
     if (!frame || !frame->get_data_buffer() || frame->get_data_length() == 0) {
         ESP_LOGE(TAG, "Invalid frame received for processing");
+		this->print_debug_info();
         DURATION_END("process_full_image (invalid frame)");
         return;
     }
@@ -138,6 +288,7 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
                     value, confidence);
         } else {
             ESP_LOGE(TAG, "Model result processing failed for zone");
+			this->print_debug_info();
             processing_success = false;
             break;
         }
@@ -158,8 +309,15 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
         if (value_sensor_) {
             value_sensor_->publish_state(final_reading);
         }
+		
+		if (debug_mode_) {
+		  this->print_debug_info();
+		}
+		
+		
     } else {
         ESP_LOGE(TAG, "Frame processing failed");
+		this->print_debug_info();
     }
 
     // Memory cleanup
@@ -171,6 +329,7 @@ bool MeterReaderTFLite::process_model_result(const ImageProcessor::ProcessResult
     // Invoke the model with the processed image data
     if (!model_handler_.invoke_model(result.data.get(), result.size)) {
         ESP_LOGE(TAG, "Model invocation failed");
+		// this->print_debug_info();
         return false;
     }
 
@@ -178,6 +337,7 @@ bool MeterReaderTFLite::process_model_result(const ImageProcessor::ProcessResult
     const float* output = model_handler_.get_output();
     if (!output) {
         ESP_LOGE(TAG, "Failed to get model output");
+		// this->print_debug_info();
         return false;
     }
 
@@ -314,8 +474,10 @@ void MeterReaderTFLite::set_model_config(const std::string &model_identifier) {
 }
 
 bool MeterReaderTFLite::load_model() {
+	
   if (!allocate_tensor_arena()) {
 	  ESP_LOGE(TAG, "Tensor arena allocation failed");
+	  this->print_debug_info();
     return false;
   }
 
@@ -497,6 +659,19 @@ void MeterReaderTFLite::print_debug_info() {
                 model_handler_.get_arena_peak_bytes(),
                 tensor_arena_size_actual_,
                 "bytes");
+		ESP_LOGI(TAG, "│ Input Type:         %-23s │", 
+                model_handler_.get_config().input_type.c_str());
+        ESP_LOGI(TAG, "│ Normalize Input:    %-23s │", 
+                model_handler_.get_config().normalize ? "YES" : "NO");
+				
+		// ESP_LOGI(TAG, "Model input requirements:");
+		// ESP_LOGI(TAG, "  Dimensions: %d x %d x %d",
+				// input->dims->data[1], 
+				// input->dims->data[2],
+				// input->dims->data[3]);
+		// ESP_LOGI(TAG, "  Type: %s", 
+				// input->type == kTfLiteUInt8 ? "uint8" : "float32");
+		// ESP_LOGI(TAG, "  Bytes required: %d", input->bytes);
     } else {
         ESP_LOGI(TAG, "│ Model:              %-23s │", "NOT LOADED");
     }

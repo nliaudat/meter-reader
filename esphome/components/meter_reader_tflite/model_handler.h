@@ -61,8 +61,25 @@ class ModelHandler {
   const ModelConfig& get_config() const { return config_; }
   void set_config(const ModelConfig &config) { config_ = config; }
   
-    // const float* model_output_ = nullptr;
-    // int output_size_ = 0;
+	bool is_model_quantized() const {
+			return interpreter_ && input_tensor() && 
+				   input_tensor()->type == kTfLiteUInt8;
+		}
+		
+		const uint8_t* get_quantized_output() const {
+			return interpreter_ && output_tensor() ? 
+				   output_tensor()->data.uint8 : nullptr;
+		}
+		
+		float get_output_scale() const {
+			return interpreter_ && output_tensor() ? 
+				   output_tensor()->params.scale : 1.0f;
+		}
+		
+		int get_output_zero_point() const {
+			return interpreter_ && output_tensor() ? 
+				   output_tensor()->params.zero_point : 0;
+		}
 
 
  protected:
@@ -78,6 +95,7 @@ private:
 
     const float* model_output_ = nullptr;
     int output_size_ = 0;
+	mutable std::vector<float> dequantized_output_;
   
 };
 
