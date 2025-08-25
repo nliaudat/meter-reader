@@ -117,6 +117,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   
   // bool is_processing_image_ = false; // Todo : better if std::atomic<bool> is_processing_image_{false};
   std::atomic<bool> is_processing_{false};
+  QueueHandle_t frame_queue_;
   
 /* #ifdef DEBUG_METER_READER_TFLITE
   // std::shared_ptr<camera::CameraImage> debug_image_;

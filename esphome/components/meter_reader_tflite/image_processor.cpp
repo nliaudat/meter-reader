@@ -186,50 +186,45 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
     
     DURATION_START();
     
-    const int model_width = model_handler_->get_input_width(); // 32
-    const int model_height = model_handler_->get_input_height(); // 20
-    const int model_channels = model_handler_->get_input_channels(); // 3
-	
-	const size_t required_size = model_width * model_height * model_channels;
-	ESP_LOGD(TAG, "Model requires %dx%dx%d (%zu bytes)", 
-            model_width, model_height, model_channels, required_size);
-    
+    const int model_width = model_handler_->get_input_width();
+    const int model_height = model_handler_->get_input_height();
+    const int model_channels = model_handler_->get_input_channels();
+    const size_t required_size = model_width * model_height * model_channels;
+
+    // Allocate buffer in PSRAM if available
     UniqueBufferPtr buffer = allocate_image_buffer(required_size);
     if (!buffer) return ProcessResult(nullptr, 0);
 
-    uint8_t* raw_buffer = buffer.get();
-    const bool is_quantized = model_handler_->is_model_quantized();
+    // Fixed-point scaling factors (16.16 format)
+    const uint32_t width_scale = ((zone.x2 - zone.x1) << 16) / model_width;
+    const uint32_t height_scale = ((zone.y2 - zone.y1) << 16) / model_height;
 
-    // Calculate scaling factors
-    const float width_scale = static_cast<float>(zone.x2 - zone.x1) / model_width;
-    const float height_scale = static_cast<float>(zone.y2 - zone.y1) / model_height;
-
+    uint8_t* dst = buffer.get();
+    
+    // Optimized scaling loop
     for (int y = 0; y < model_height; y++) {
+        const int src_y = zone.y1 + ((y * height_scale) >> 16);
+        const size_t src_row_offset = src_y * src_width * bytes_per_pixel_;
+        
         for (int x = 0; x < model_width; x++) {
-            const int src_x = zone.x1 + static_cast<int>(x * width_scale);
-            const int src_y = zone.y1 + static_cast<int>(y * height_scale);
-            const size_t src_pixel_index = (src_y * src_width + src_x) * bytes_per_pixel_;
-            const size_t dst_pixel_index = (y * model_width + x) * model_channels;
+            const int src_x = zone.x1 + ((x * width_scale) >> 16);
+            const size_t src_pixel_offset = src_row_offset + src_x * bytes_per_pixel_;
+            const size_t dst_pixel_offset = (y * model_width + x) * model_channels;
 
+            // Handle different pixel formats
             if (bytes_per_pixel_ == 1) { // Grayscale
-                const uint8_t val = src_data[src_pixel_index];
-                raw_buffer[dst_pixel_index] = val;
-                raw_buffer[dst_pixel_index+1] = val;
-                raw_buffer[dst_pixel_index+2] = val;
+                const uint8_t val = src_data[src_pixel_offset];
+                dst[dst_pixel_offset] = val;
+                dst[dst_pixel_offset+1] = val;
+                dst[dst_pixel_offset+2] = val;
             } else { // RGB
                 for (int c = 0; c < model_channels; c++) {
-                    raw_buffer[dst_pixel_index + c] = 
-                        src_data[src_pixel_index + (c % bytes_per_pixel_)];
+                    dst[dst_pixel_offset + c] = src_data[src_pixel_offset + (c % bytes_per_pixel_)];
                 }
             }
         }
     }
-    
-    ESP_LOGD(TAG, "Scaled region: %dx%d->%dx%dx%d (size: %zu)",
-            zone.x2-zone.x1, zone.y2-zone.y1,
-            model_width, model_height, model_channels,
-            required_size);
-    
+
     DURATION_END("scale_cropped_region");
     return ProcessResult(std::move(buffer), required_size);
 }

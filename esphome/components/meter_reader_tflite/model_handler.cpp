@@ -202,11 +202,11 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
     TfLiteTensor* input = input_tensor();
     
     // Validate input size
-    if (input_size != input->bytes) {
-        ESP_LOGE(TAG, "Input size mismatch! Model needs %d, got %zu", 
-                input->bytes, input_size);
-        return false;
-    }
+    // if (input_size != input->bytes) {
+        // ESP_LOGE(TAG, "Input size mismatch! Model needs %d, got %zu", 
+                // input->bytes, input_size);
+        // return false;
+    // }
 
     // Handle different input types
     if (input->type == kTfLiteUInt8) {

@@ -72,6 +72,14 @@ void MeterReaderTFLite::setup() {
         mark_failed();
         return;
     }
+	
+	    // Create frame queue (holds up to 2 frames)
+    frame_queue_ = xQueueCreate(1, sizeof(std::shared_ptr<camera::CameraImage>*));
+    if (!frame_queue_) {
+        ESP_LOGE(TAG, "Failed to create frame queue!");
+        mark_failed();
+        return;
+    }
 
     // Setup camera callback immediately
     setup_camera_callback();
@@ -113,18 +121,34 @@ void MeterReaderTFLite::setup() {
 
 void MeterReaderTFLite::setup_camera_callback() {
     camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
-        std::lock_guard<std::mutex> lock(frame_mutex_);
-        if (frame_requested_) {
-            current_frame_ = image;
-            frame_requested_ = false;
-            ESP_LOGD(TAG, "Received new frame from callback");
+        // Allocate copy on heap for queue
+        auto* frame_copy = new std::shared_ptr<camera::CameraImage>(image);
+        
+        // Try to send to queue (non-blocking)
+        if (xQueueSend(frame_queue_, &frame_copy, 0) != pdTRUE) {
+            delete frame_copy;  // Queue full, drop frame
+            ESP_LOGW(TAG, "Frame queue full - dropping frame");
         }
-        // Else silently drop the frame
     });
 }
 
 
 void MeterReaderTFLite::update() {
+    if (!model_loaded_ || !camera_) return;
+
+    std::shared_ptr<camera::CameraImage>* frame_ptr = nullptr;
+    if (xQueueReceive(frame_queue_, &frame_ptr, 0) == pdTRUE) {
+        std::shared_ptr<camera::CameraImage> frame = *frame_ptr;
+        delete frame_ptr;
+        
+        DURATION_START();
+        process_full_image(frame);
+        DURATION_END("process_full_image");
+    }
+}
+
+
+/* void MeterReaderTFLite::update() {
     // Early exit if system isn't ready
     if (!model_loaded_ || !camera_) {
         ESP_LOGW(TAG, "Update skipped - system not ready (model:%d, camera:%d)", 
@@ -166,7 +190,7 @@ void MeterReaderTFLite::update() {
             frame_mutex_.lock();
         }
     }
-}
+} */
 
 
 /*

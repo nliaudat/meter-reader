@@ -18,6 +18,7 @@ class CropZoneHandler {
  public:
   void parse_zones(const std::string &zones_json);
   const std::vector<CropZone>& get_zones() const { return zones_; }
+  void set_default_zone(int width, int height);
 
  protected:
   std::vector<CropZone> zones_;
