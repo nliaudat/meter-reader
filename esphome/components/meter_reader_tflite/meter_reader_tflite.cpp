@@ -134,7 +134,13 @@ void MeterReaderTFLite::setup_camera_callback() {
 
 
 void MeterReaderTFLite::update() {
-    if (!model_loaded_ || !camera_) return;
+	
+	// Early exit if system isn't ready
+    if (!model_loaded_ || !camera_) {
+        ESP_LOGW(TAG, "Update skipped - system not ready (model:%d, camera:%d)", 
+                model_loaded_, (camera_ != nullptr));
+        return;
+    }
 
     std::shared_ptr<camera::CameraImage>* frame_ptr = nullptr;
     if (xQueueReceive(frame_queue_, &frame_ptr, 0) == pdTRUE) {
@@ -327,7 +333,7 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
 
 bool MeterReaderTFLite::process_model_result(const ImageProcessor::ProcessResult& result, float* value, float* confidence) {
     // Invoke the model with the processed image data
-    if (!model_handler_.invoke_model(result.data.get(), result.size)) {
+    if (!model_handler_.invoke_model(result.data->get(), result.size)) {
         ESP_LOGE(TAG, "Model invocation failed");
 		// this->print_debug_info();
         return false;

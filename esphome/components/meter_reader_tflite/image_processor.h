@@ -23,21 +23,31 @@ struct ImageProcessorConfig {
 
 class ImageProcessor {
  public:
-    // Define the custom deleter first
-    struct PSRAMDeleter {
-        void operator()(uint8_t* p) const {
-            if (p) {
-                if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) {
-                    heap_caps_free(p);
+    // Simple wrapper that tracks allocation source
+    class TrackedBuffer {
+    public:
+        TrackedBuffer(uint8_t* ptr, bool is_spiram) : ptr_(ptr), is_spiram_(is_spiram) {}
+        ~TrackedBuffer() {
+            if (ptr_) {
+                if (is_spiram_) {
+                    heap_caps_free(ptr_);
                 } else {
-                    delete[] p;
+                    delete[] ptr_;
                 }
             }
         }
+        
+        uint8_t* get() { return ptr_; }
+        const uint8_t* get() const { return ptr_; }
+        uint8_t& operator[](size_t idx) { return ptr_[idx]; }
+        const uint8_t& operator[](size_t idx) const { return ptr_[idx]; }
+        
+    private:
+        uint8_t* ptr_;
+        bool is_spiram_;
     };
 
-    // Our custom unique_ptr type
-    using UniqueBufferPtr = std::unique_ptr<uint8_t[], PSRAMDeleter>;
+    using UniqueBufferPtr = std::unique_ptr<TrackedBuffer>;
 
     struct ProcessResult {
         UniqueBufferPtr data;
@@ -67,15 +77,32 @@ class ImageProcessor {
 
   bool validate_zone(const CropZone &zone) const;
   bool validate_jpeg(const uint8_t* data, size_t size);
-  bool jpeg_to_rgb888(const uint8_t* src, size_t src_len, uint8_t* dst, uint32_t width, uint32_t height);
-  
-    UniqueBufferPtr allocate_image_buffer(size_t size) {
-        uint8_t* buf = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!buf) {
-            buf = new uint8_t[size];
-        }
-        return UniqueBufferPtr(buf);
-    }
+  bool jpeg_to_rgb888(const uint8_t* src, size_t src_len, uint8_t* dst);
+
+  UniqueBufferPtr allocate_image_buffer(size_t size) {
+      uint8_t* buf = nullptr;
+      bool is_spiram = false;
+      
+      // Try to allocate from SPIRAM first
+      #ifdef CONFIG_SPIRAM
+      if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >= size) {
+          buf = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+          is_spiram = (buf != nullptr);
+      }
+      #endif
+      
+      // Fall back to internal RAM if SPIRAM allocation failed or is not available
+      if (!buf) {
+          buf = new (std::nothrow) uint8_t[size];
+          is_spiram = false;
+      }
+      
+      if (buf) {
+          return std::unique_ptr<TrackedBuffer>(new TrackedBuffer(buf, is_spiram));
+      }
+      
+      return nullptr;
+  }
 
   ImageProcessorConfig config_;
   ModelHandler* model_handler_;

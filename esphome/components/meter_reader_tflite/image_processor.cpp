@@ -4,9 +4,6 @@
 #include "managed_components/espressif__esp32-camera/conversions/include/img_converters.h"
 #include <algorithm>
 
-    // Model Expects: 7680 bytes (likely 32x32x3 = 3072 uint8 elements)
-    // image : 1920 bytes (32x20x3 = 1920 uint8 elements)
-
 namespace esphome {
 namespace meter_reader_tflite {
 
@@ -49,21 +46,8 @@ ImageProcessor::ImageProcessor(const ImageProcessorConfig &config,
            model_handler_->get_input_channels());
 }
 
-bool ImageProcessor::jpeg_to_rgb888(const uint8_t* src, size_t src_len, uint8_t* dst, uint32_t width, uint32_t height) {
-    // Allocate temporary buffer in PSRAM if available
-    uint8_t* temp_buf = (uint8_t*)heap_caps_malloc(width * height * 3, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!temp_buf) {
-        ESP_LOGE(TAG, "Failed to allocate PSRAM buffer");
-        return false;
-    }
-
-    bool result = fmt2rgb888(src, src_len, PIXFORMAT_JPEG, temp_buf);
-    if (result) {
-        memcpy(dst, temp_buf, width * height * 3);
-    }
-    
-    heap_caps_free(temp_buf);
-    return result;
+bool ImageProcessor::jpeg_to_rgb888(const uint8_t* src, size_t src_len, uint8_t* dst) {
+    return fmt2rgb888(src, src_len, PIXFORMAT_JPEG, dst);
 }
 
 bool ImageProcessor::validate_jpeg(const uint8_t* data, size_t size) {
@@ -158,14 +142,18 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
 
     // Allocate RGB888 buffer
     size_t rgb_size = config_.camera_width * config_.camera_height * 3;
-    auto rgb_buffer = std::unique_ptr<uint8_t[]>(new uint8_t[rgb_size]);
-    
-    if (!jpeg_to_rgb888(jpeg_data, jpeg_size, rgb_buffer.get(), 
-                       config_.camera_width, config_.camera_height)) {
+    auto rgb_buffer = allocate_image_buffer(rgb_size);
+    if (!rgb_buffer) {
+      ESP_LOGE(TAG, "Failed to allocate RGB buffer for JPEG decoding");
       return result;
     }
     
-    return scale_cropped_region(rgb_buffer.get(), 
+    if (!jpeg_to_rgb888(jpeg_data, jpeg_size, rgb_buffer->get())) {
+      ESP_LOGE(TAG, "JPEG to RGB888 conversion failed");
+      return result;
+    }
+    
+    return scale_cropped_region(rgb_buffer->get(), 
                               config_.camera_width, 
                               config_.camera_height, 
                               zone);
@@ -190,16 +178,21 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
     const int model_height = model_handler_->get_input_height();
     const int model_channels = model_handler_->get_input_channels();
     const size_t required_size = model_width * model_height * model_channels;
+    
+    ESP_LOGD(TAG, "Model requires %dx%dx%d (%zu bytes)", model_width, model_height, model_channels, required_size);    
 
-    // Allocate buffer in PSRAM if available
+    // Allocate buffer
     UniqueBufferPtr buffer = allocate_image_buffer(required_size);
-    if (!buffer) return ProcessResult(nullptr, 0);
+    if (!buffer) {
+      ESP_LOGE(TAG, "Failed to allocate output buffer");
+      return ProcessResult(nullptr, 0);
+    }
 
     // Fixed-point scaling factors (16.16 format)
     const uint32_t width_scale = ((zone.x2 - zone.x1) << 16) / model_width;
     const uint32_t height_scale = ((zone.y2 - zone.y1) << 16) / model_height;
 
-    uint8_t* dst = buffer.get();
+    uint8_t* dst = buffer->get();
     
     // Optimized scaling loop
     for (int y = 0; y < model_height; y++) {
