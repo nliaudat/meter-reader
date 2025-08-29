@@ -135,15 +135,15 @@ async def to_code(config):
     # register debug service (called by service: meter_reader_tflite_my_reader_debug)
     cg.add_define("USE_SERVICE_DEBUG")
     var = await cg.get_variable(config[CONF_ID])
-    template = """
-    register_service("%s_debug", 
-        [](%s *comp) { comp->dump_debug_info(); },
-        %s);
-    """ % (config[CONF_ID], 
-           "esphome::meter_reader_tflite::MeterReaderTFLite",
-           config[CONF_ID])
+    # template = """
+    # register_service("%s_debug", 
+        # [](%s *comp) { comp->dump_debug_info(); },
+        # %s);
+    # """ % (config[CONF_ID], 
+           # "esphome::meter_reader_tflite::MeterReaderTFLite",
+           # config[CONF_ID])
            
-
+    # cg.add_global(cg.RawStatement(template))
 
     # if config.get(CONF_DEBUG, False): # Default to False if not specified
         # cg.add_define("DEBUG_METER_READER_TFLITE")

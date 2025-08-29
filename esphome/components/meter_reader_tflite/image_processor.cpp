@@ -4,6 +4,9 @@
 #include "managed_components/espressif__esp32-camera/conversions/include/img_converters.h"
 #include <algorithm>
 
+// Model Expects: 7680 bytes (likely 32x32x3 = 3072 uint8 elements)
+// image : 1920 bytes (32x20x3 = 1920 uint8 elements)
+
 namespace esphome {
 namespace meter_reader_tflite {
 
