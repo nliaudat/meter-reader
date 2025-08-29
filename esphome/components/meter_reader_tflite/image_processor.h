@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/components/camera/camera.h"
+// #include "esphome/components/sensor/sensor.h"
 #include "crop_zones.h"
 #include "model_handler.h"
 #include "esp_heap_caps.h"
@@ -63,6 +64,11 @@ class ImageProcessor {
   std::vector<ProcessResult> split_image_in_zone(
       std::shared_ptr<camera::CameraImage> image,
       const std::vector<CropZone> &zones = {});
+	  
+  // void set_confidence_sensor(sensor::Sensor *sensor) { confidence_sensor_ = sensor; }
+
+// protected:
+  // sensor::Sensor *confidence_sensor_{nullptr};
 
  private:
   ProcessResult process_zone(
@@ -91,11 +97,10 @@ class ImageProcessor {
       }
       #endif
       
-      // Fall back to internal RAM if SPIRAM allocation failed or is not available
-      if (!buf) {
-          buf = new (std::nothrow) uint8_t[size];
-          is_spiram = false;
-      }
+	  // Fallback to internal RAM with proper alignment
+	  if (!buf) {
+		buf = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+	  }
       
       if (buf) {
           return std::unique_ptr<TrackedBuffer>(new TrackedBuffer(buf, is_spiram));

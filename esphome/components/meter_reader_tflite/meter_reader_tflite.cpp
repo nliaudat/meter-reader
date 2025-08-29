@@ -74,12 +74,20 @@ void MeterReaderTFLite::setup() {
     }
 	
 	    // Create frame queue (holds up to 2 frames)
-    frame_queue_ = xQueueCreate(1, sizeof(std::shared_ptr<camera::CameraImage>*));
-    if (!frame_queue_) {
-        ESP_LOGE(TAG, "Failed to create frame queue!");
-        mark_failed();
-        return;
-    }
+    // frame_queue_ = xQueueCreate(1, sizeof(std::shared_ptr<camera::CameraImage>*));
+    // if (!frame_queue_) {
+        // ESP_LOGE(TAG, "Failed to create frame queue!");
+        // mark_failed();
+        // return;
+    // }
+	
+	  // Create queue for frame shared_ptrs
+	  frame_queue_ = xQueueCreate(2, sizeof(QueuedFrame)); // Store 2 frames
+	  if (!frame_queue_) {
+		ESP_LOGE(TAG, "Failed to create frame queue!");
+		mark_failed();
+		return;
+	  }
 
     // Setup camera callback immediately
     setup_camera_callback();
@@ -119,19 +127,32 @@ void MeterReaderTFLite::setup() {
 
 }
 
-void MeterReaderTFLite::setup_camera_callback() {
-    camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
-        // Allocate copy on heap for queue
-        auto* frame_copy = new std::shared_ptr<camera::CameraImage>(image);
+// void MeterReaderTFLite::setup_camera_callback() {
+    // camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
+        // //Allocate copy on heap for queue
+        // auto* frame_copy = new std::shared_ptr<camera::CameraImage>(image);
         
-        // Try to send to queue (non-blocking)
-        if (xQueueSend(frame_queue_, &frame_copy, 0) != pdTRUE) {
-            delete frame_copy;  // Queue full, drop frame
-            ESP_LOGW(TAG, "Frame queue full - dropping frame");
-        }
-    });
-}
+        // //Try to send to queue (non-blocking)
+        // if (xQueueSend(frame_queue_, &frame_copy, 0) != pdTRUE) {
+            // delete frame_copy;  // Queue full, drop frame
+            // ESP_LOGW(TAG, "Frame queue full - dropping frame");
+        // }
+    // });
+// }
 
+
+void MeterReaderTFLite::setup_camera_callback() {
+  camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
+    QueuedFrame queued_frame;
+    queued_frame.frame = image; // This increments the reference count
+    queued_frame.timestamp = millis();
+    
+    if (xQueueSend(frame_queue_, &queued_frame, 0) != pdTRUE) {
+      ESP_LOGW(TAG, "Frame queue full - dropping frame");
+      // The shared_ptr will be automatically destroyed here, decrementing ref count
+    }
+  });
+}
 
 void MeterReaderTFLite::update() {
 	
@@ -142,15 +163,33 @@ void MeterReaderTFLite::update() {
         return;
     }
 
-    std::shared_ptr<camera::CameraImage>* frame_ptr = nullptr;
-    if (xQueueReceive(frame_queue_, &frame_ptr, 0) == pdTRUE) {
-        std::shared_ptr<camera::CameraImage> frame = *frame_ptr;
-        delete frame_ptr;
+    // std::shared_ptr<camera::CameraImage>* frame_ptr = nullptr;
+    // if (xQueueReceive(frame_queue_, &frame_ptr, 0) == pdTRUE) {
+        // std::shared_ptr<camera::CameraImage> frame = *frame_ptr;
+        // delete frame_ptr;
         
-        DURATION_START();
-        process_full_image(frame);
-        DURATION_END("process_full_image");
+        // DURATION_START();
+        // process_full_image(frame);
+        // DURATION_END("process_full_image");
+    // }
+	
+  QueuedFrame queued_frame;
+  if (xQueueReceive(frame_queue_, &queued_frame, 0) == pdTRUE) {
+    // Check if frame is too old (optional)
+    uint32_t now = millis();
+    if (now - queued_frame.timestamp > 5000) { // 5 second timeout
+      ESP_LOGW(TAG, "Dropping stale frame (%lu ms old)", now - queued_frame.timestamp);
+      return;
     }
+    
+    DURATION_START();
+    process_full_image(queued_frame.frame);
+    DURATION_END("process_full_image");
+    
+    // Frame will be automatically destroyed when queued_frame goes out of scope
+  }
+  
+  
 }
 
 
@@ -368,6 +407,17 @@ bool MeterReaderTFLite::process_model_result(const ImageProcessor::ProcessResult
     *confidence = max_prob;
 
     ESP_LOGD(TAG, "Model output - Class: %d, Confidence: %.2f", predicted_class, max_prob);
+	
+	  *value = static_cast<float>(predicted_class);
+	  *confidence = max_prob;
+
+	  // Publish confidence score - ADD THIS AFTER setting the values
+	  if (confidence_sensor_ != nullptr) {
+		confidence_sensor_->publish_state(max_prob);
+	  }
+
+	  ESP_LOGD(TAG, "Model output - Class: %d, Confidence: %.2f", predicted_class, max_prob);
+	
     return true;
 }
 
@@ -732,6 +782,17 @@ void MeterReaderTFLite::print_debug_info() {
                 model_handler_.get_arena_peak_bytes(), "bytes");
     }
     ESP_LOGI(TAG, "└──────────────────────────────────────────────┘");
+	
+	
+	  // Add queue info
+	  UBaseType_t queue_messages = uxQueueMessagesWaiting(frame_queue_);
+	  UBaseType_t queue_spaces = uxQueueSpacesAvailable(frame_queue_);
+	  
+    ESP_LOGI(TAG, "┌──────────────────────────────────────────────┐");
+    ESP_LOGI(TAG, "│              QUEUE INFORMATION              │");
+    ESP_LOGI(TAG, "├──────────────────────────────────────────────┤");
+	  ESP_LOGI(TAG, "│ Queue Status:        %-2lu/%-2lu%-18s │", 
+			  queue_messages, queue_messages + queue_spaces, "msgs");
     
     ESP_LOGI(TAG, "═══════════════════════════════════════════════");
 }
@@ -787,6 +848,14 @@ MeterReaderTFLite::~MeterReaderTFLite() {
   // for (auto& buffer : frame_buffers_) {
     // buffer.reset();
   // }
+  
+  // Clean up queue
+  if (frame_queue_) {
+    // Just delete the queue, any remaining QueuedFrame objects will be 
+    // automatically destroyed with their shared_ptrs
+    vQueueDelete(frame_queue_);
+    frame_queue_ = nullptr;
+  }
 
     ESP_LOGD(TAG, "Destruction complete");
 }

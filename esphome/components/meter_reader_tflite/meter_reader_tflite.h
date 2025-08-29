@@ -73,8 +73,10 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void test_with_debug_image();
   void set_debug_mode(bool debug_mode);
 #endif */
+	void set_confidence_sensor(sensor::Sensor *sensor) { confidence_sensor_ = sensor; }
 
  protected:
+  sensor::Sensor *confidence_sensor_{nullptr};
   bool allocate_tensor_arena();
   bool load_model();
   bool image_requested_ = false;
@@ -117,7 +119,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   
   // bool is_processing_image_ = false; // Todo : better if std::atomic<bool> is_processing_image_{false};
   std::atomic<bool> is_processing_{false};
-  QueueHandle_t frame_queue_;
+  // QueueHandle_t frame_queue_;
   
 /* #ifdef DEBUG_METER_READER_TFLITE
   // std::shared_ptr<camera::CameraImage> debug_image_;
@@ -136,7 +138,13 @@ private:
   // std::atomic<bool> processing_buffer_{false};
   
   void setup_camera_callback();
-  std::mutex frame_mutex_;
+  
+  struct QueuedFrame {
+    std::shared_ptr<camera::CameraImage> frame;
+    uint32_t timestamp;
+  };
+  QueueHandle_t frame_queue_;
+  // std::mutex frame_mutex_;
   bool frame_requested_{false};
   
   // State flags

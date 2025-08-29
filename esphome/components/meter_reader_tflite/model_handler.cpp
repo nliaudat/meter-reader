@@ -208,6 +208,13 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         // return false;
     // }
 
+
+	  // Validate input size
+	  if (input_size != input->bytes) {
+		ESP_LOGE(TAG, "Input size mismatch! Expected %d, got %zu", input->bytes, input_size);
+		return false;
+	  }
+  
     // Handle different input types
     if (input->type == kTfLiteUInt8) {
         // Quantized model processing
