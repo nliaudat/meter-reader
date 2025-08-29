@@ -81,7 +81,7 @@ void MeterReaderTFLite::setup() {
         // return;
     // }
 	
-	  // Create queue for frame shared_ptrs
+/* 	  // Create queue for frame shared_ptrs
 	  frame_queue_ = xQueueCreate(2, sizeof(QueuedFrame)); // Store 2 frames
 	  if (!frame_queue_) {
 		ESP_LOGE(TAG, "Failed to create frame queue!");
@@ -90,7 +90,29 @@ void MeterReaderTFLite::setup() {
 	  }
 
     // Setup camera callback immediately
-    setup_camera_callback();
+    setup_camera_callback(); */
+	
+	
+  camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
+    if (!process_next_frame_ || !model_loaded_) {
+      frames_skipped_++;
+      return;
+    }
+
+    // We have a frame to process
+    process_next_frame_ = false;
+    frames_processed_++;
+    
+    DURATION_START();
+    process_full_image(image);
+    DURATION_END("process_full_image");
+
+    // Log statistics periodically
+    if (frames_processed_ % 10 == 0) {
+      ESP_LOGI(TAG, "Processed: %lu, Skipped: %lu, Interval: %lums", 
+               frames_processed_, frames_skipped_, this->get_update_interval());
+    }
+  });
 
     // Delay model loading for 10 seconds with proper timeout handling
     ESP_LOGI(TAG, "Model loading will begin in 10 seconds...");
@@ -127,6 +149,48 @@ void MeterReaderTFLite::setup() {
 
 }
 
+void MeterReaderTFLite::update() {
+  if (!model_loaded_ || !camera_) {
+    ESP_LOGW(TAG, "Update skipped - system not ready");
+    return;
+  }
+
+  process_next_frame_ = true;
+  last_request_time_ = millis();
+  
+  ESP_LOGD(TAG, "Frame processing requested");
+}
+
+void MeterReaderTFLite::loop() {
+  // Optional: Handle case where no frame arrives for a long time
+  if (process_next_frame_ && (millis() - last_request_time_ > 10000)) {
+    ESP_LOGW(TAG, "No frame received for 10 seconds after request");
+    process_next_frame_ = false;
+  }
+}
+
+/* void MeterReaderTFLite::update() {
+  if (!model_loaded_ || !camera_) {
+    ESP_LOGW(TAG, "Update skipped - system not ready");
+    return;
+  }
+
+  // Request a specific capture
+  uint32_t capture_id = camera_->request_capture();
+  ESP_LOGD(TAG, "Requested capture ID: %lu", capture_id);
+  
+  // Process it when ready (non-blocking)
+  this->set_timeout(100, [this, capture_id]() {
+    if (auto image = camera_->get_capture_result()) {
+      if (image->get_capture_id() == capture_id) {
+        DURATION_START();
+        process_full_image(image);
+        DURATION_END("process_full_image");
+      }
+    }
+  });
+}
+ */
 // void MeterReaderTFLite::setup_camera_callback() {
     // camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
         // //Allocate copy on heap for queue
@@ -141,7 +205,7 @@ void MeterReaderTFLite::setup() {
 // }
 
 
-void MeterReaderTFLite::setup_camera_callback() {
+/* void MeterReaderTFLite::setup_camera_callback() {
   camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
     QueuedFrame queued_frame;
     queued_frame.frame = image; // This increments the reference count
@@ -190,7 +254,7 @@ void MeterReaderTFLite::update() {
   }
   
   
-}
+} */
 
 
 /* void MeterReaderTFLite::update() {
@@ -408,8 +472,8 @@ bool MeterReaderTFLite::process_model_result(const ImageProcessor::ProcessResult
 
     ESP_LOGD(TAG, "Model output - Class: %d, Confidence: %.2f", predicted_class, max_prob);
 	
-	  *value = static_cast<float>(predicted_class);
-	  *confidence = max_prob;
+	  // *value = static_cast<float>(predicted_class);
+	  // *confidence = max_prob;
 
 	  // Publish confidence score - ADD THIS AFTER setting the values
 	  if (confidence_sensor_ != nullptr) {
@@ -581,9 +645,9 @@ size_t MeterReaderTFLite::get_arena_peak_bytes() const {
   return model_handler_.get_arena_peak_bytes();
 }
 
-void MeterReaderTFLite::loop() {
+/* void MeterReaderTFLite::loop() {
   // Nothing here; image capture is async via callback
-}
+} */
 
 
 
@@ -785,14 +849,22 @@ void MeterReaderTFLite::print_debug_info() {
 	
 	
 	  // Add queue info
-	  UBaseType_t queue_messages = uxQueueMessagesWaiting(frame_queue_);
-	  UBaseType_t queue_spaces = uxQueueSpacesAvailable(frame_queue_);
+	  // UBaseType_t queue_messages = uxQueueMessagesWaiting(frame_queue_);
+	  // UBaseType_t queue_spaces = uxQueueSpacesAvailable(frame_queue_);
 	  
-    ESP_LOGI(TAG, "┌──────────────────────────────────────────────┐");
-    ESP_LOGI(TAG, "│              QUEUE INFORMATION              │");
-    ESP_LOGI(TAG, "├──────────────────────────────────────────────┤");
-	  ESP_LOGI(TAG, "│ Queue Status:        %-2lu/%-2lu%-18s │", 
-			  queue_messages, queue_messages + queue_spaces, "msgs");
+    // ESP_LOGI(TAG, "┌──────────────────────────────────────────────┐");
+    // ESP_LOGI(TAG, "│              QUEUE INFORMATION              │");
+    // ESP_LOGI(TAG, "├──────────────────────────────────────────────┤");
+	  // ESP_LOGI(TAG, "│ Queue Status:        %-2lu/%-2lu%-18s │", 
+			  // queue_messages, queue_messages + queue_spaces, "msgs");
+			  
+			  
+  ESP_LOGI(TAG, "│ Update Interval:     %-6lu%-17s │", 
+           this->get_update_interval(), "ms");
+  ESP_LOGI(TAG, "│ Frames Processed:    %-6lu%-17s │", 
+           frames_processed_, "");
+  ESP_LOGI(TAG, "│ Frames Skipped:      %-6lu%-17s │", 
+           frames_skipped_, "");
     
     ESP_LOGI(TAG, "═══════════════════════════════════════════════");
 }

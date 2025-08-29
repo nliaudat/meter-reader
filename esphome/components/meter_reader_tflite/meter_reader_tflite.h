@@ -151,7 +151,10 @@ private:
   // bool debug_mode_{false};
   // bool model_loaded_{false};
   // esp32_camera::ESP32Camera *camera_{nullptr};
-  
+  bool process_next_frame_ = false;
+  uint32_t last_request_time_ = 0;
+  uint32_t frames_processed_ = 0;
+  uint32_t frames_skipped_ = 0;
   
 };
 
