@@ -68,14 +68,27 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   int get_model_input_height() const { return model_handler_.get_input_height(); }
   int get_model_input_channels() const { return model_handler_.get_input_channels(); } 
   
-/* #ifdef DEBUG_METER_READER_TFLITE
+#ifdef DEBUG_METER_READER_TFLITE
   void set_debug_image(const uint8_t* data, size_t size);
   void test_with_debug_image();
   void set_debug_mode(bool debug_mode);
-#endif */
+#endif
 	void set_confidence_sensor(sensor::Sensor *sensor) { confidence_sensor_ = sensor; }
 
  protected:
+ 
+  QueueHandle_t frame_queue_{nullptr};
+  bool process_next_frame_ = false;
+  uint32_t last_request_time_ = 0;
+  uint32_t frames_processed_ = 0;
+  uint32_t frames_skipped_ = 0;
+  
+  void force_process_frame() {
+      if (camera_) {
+          camera_->request_image(camera::IDLE);
+      }
+  }
+  
   sensor::Sensor *confidence_sensor_{nullptr};
   bool allocate_tensor_arena();
   bool load_model();
@@ -143,7 +156,7 @@ private:
     std::shared_ptr<camera::CameraImage> frame;
     uint32_t timestamp;
   };
-  QueueHandle_t frame_queue_;
+  // QueueHandle_t frame_queue_;
   // std::mutex frame_mutex_;
   bool frame_requested_{false};
   
@@ -151,10 +164,10 @@ private:
   // bool debug_mode_{false};
   // bool model_loaded_{false};
   // esp32_camera::ESP32Camera *camera_{nullptr};
-  bool process_next_frame_ = false;
-  uint32_t last_request_time_ = 0;
-  uint32_t frames_processed_ = 0;
-  uint32_t frames_skipped_ = 0;
+  // bool process_next_frame_ = false;
+  // uint32_t last_request_time_ = 0;
+  // uint32_t frames_processed_ = 0;
+  // uint32_t frames_skipped_ = 0;
   
 };
 
