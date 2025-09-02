@@ -8,10 +8,7 @@
 #include "esp_log.h"
 #include "debug_utils.h"
 #include <algorithm>
-
-// Include JPEG headers
-// #include "esp_jpeg_dec.h"
-// #include "esp_jpeg_common.h"
+#include <cstring>
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -59,6 +56,57 @@ ImageProcessor::ImageProcessor(const ImageProcessorConfig &config,
            model_handler_->get_input_width(),
            model_handler_->get_input_height(),
            model_handler_->get_input_channels());
+}
+
+/**
+ * @brief Adjusts crop zone to nearest multiple of 8 for JPEG decoder requirements.
+ * @param zone Original crop zone to adjust
+ * @return Adjusted crop zone with dimensions multiple of 8
+ */
+CropZone adjust_zone_for_jpeg(const CropZone &zone, int max_width, int max_height) {
+    CropZone adjusted = zone;
+    
+    // Adjust width to nearest multiple of 8
+    int width = zone.x2 - zone.x1;
+    int adjusted_width = (width + 4) / 8 * 8; // Round to nearest multiple of 8
+    if (adjusted_width > width) {
+        adjusted_width -= 8; // Ensure we don't exceed original bounds
+    }
+    adjusted_width = std::max(8, adjusted_width); // Minimum 8 pixels
+    
+    // Adjust height to nearest multiple of 8
+    int height = zone.y2 - zone.y1;
+    int adjusted_height = (height + 4) / 8 * 8; // Round to nearest multiple of 8
+    if (adjusted_height > height) {
+        adjusted_height -= 8;
+    }
+    adjusted_height = std::max(8, adjusted_height); // Minimum 8 pixels
+    
+    // Center the adjusted zone within original bounds
+    adjusted.x1 = zone.x1 + (width - adjusted_width) / 2;
+    adjusted.y1 = zone.y1 + (height - adjusted_height) / 2;
+    adjusted.x2 = adjusted.x1 + adjusted_width;
+    adjusted.y2 = adjusted.y1 + adjusted_height;
+    
+    // Ensure within image bounds
+    adjusted.x1 = std::max(0, adjusted.x1);
+    adjusted.y1 = std::max(0, adjusted.y1);
+    adjusted.x2 = std::min(max_width, adjusted.x2);
+    adjusted.y2 = std::min(max_height, adjusted.y2);
+    
+    // Final adjustment to ensure multiples of 8
+    int final_width = adjusted.x2 - adjusted.x1;
+    int final_height = adjusted.y2 - adjusted.y1;
+    final_width = (final_width / 8) * 8;
+    final_height = (final_height / 8) * 8;
+    adjusted.x2 = adjusted.x1 + final_width;
+    adjusted.y2 = adjusted.y1 + final_height;
+    
+    ESP_LOGD(TAG, "Adjusted zone from [%d,%d,%d,%d] to [%d,%d,%d,%d] for JPEG",
+             zone.x1, zone.y1, zone.x2, zone.y2,
+             adjusted.x1, adjusted.y1, adjusted.x2, adjusted.y2);
+    
+    return adjusted;
 }
 
 /**
@@ -126,7 +174,9 @@ bool ImageProcessor::process_zone_to_buffer(
     bool success = false;
     
     if (config_.pixel_format == "JPEG") {
-        success = process_jpeg_zone_to_buffer(image, zone, output_buffer, output_buffer_size);
+        // For JPEG, we need to adjust the zone to multiples of 8
+        CropZone adjusted_zone = adjust_zone_for_jpeg(zone, config_.camera_width, config_.camera_height);
+        success = process_jpeg_zone_to_buffer(image, adjusted_zone, output_buffer, output_buffer_size);
     } else {
         success = process_raw_zone_to_buffer(image, zone, output_buffer, output_buffer_size);
     }
@@ -136,7 +186,7 @@ bool ImageProcessor::process_zone_to_buffer(
 }
 
 /**
- * @brief Processes JPEG zone directly into output buffer.
+ * @brief Processes JPEG zone directly into output buffer using esp_new_jpeg decoder.
  */
 bool ImageProcessor::process_jpeg_zone_to_buffer(
     std::shared_ptr<camera::CameraImage> image,
@@ -152,20 +202,28 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
         return false;
     }
 
-    // Configure JPEG decoder for single-step cropping and scaling
-    jpeg_dec_config_t config = {
-        .output_type = JPEG_PIXEL_FORMAT_RGB888,
-        .scale = {
-            .width = static_cast<uint16_t>(model_handler_->get_input_width()),
-            .height = static_cast<uint16_t>(model_handler_->get_input_height())
-        },
-        .clipper = {
-            .width = static_cast<uint16_t>(zone.x2 - zone.x1),
-            .height = static_cast<uint16_t>(zone.y2 - zone.y1)
-        },
-        .rotate = JPEG_ROTATE_0D,
-        .block_enable = false
-    };
+    // Get model input dimensions
+    const int model_width = model_handler_->get_input_width();
+    const int model_height = model_handler_->get_input_height();
+    
+    // Verify zone dimensions are multiples of 8 (JPEG decoder requirement)
+    int zone_width = zone.x2 - zone.x1;
+    int zone_height = zone.y2 - zone.y1;
+    if (zone_width % 8 != 0 || zone_height % 8 != 0) {
+        ESP_LOGE(TAG, "JPEG zone dimensions must be multiples of 8, got %dx%d", 
+                zone_width, zone_height);
+        return false;
+    }
+
+    // Configure JPEG decoder for cropping and scaling
+    jpeg_dec_config_t config = DEFAULT_JPEG_DEC_CONFIG();
+    config.output_type = JPEG_PIXEL_FORMAT_RGB888;
+    config.scale.width = static_cast<uint16_t>(model_width);
+    config.scale.height = static_cast<uint16_t>(model_height);
+    config.clipper.width = static_cast<uint16_t>(zone.x2 - zone.x1);
+    config.clipper.height = static_cast<uint16_t>(zone.y2 - zone.y1);
+    config.rotate = JPEG_ROTATE_0D;
+    config.block_enable = false;
 
     jpeg_dec_handle_t decoder = nullptr;
     jpeg_error_t ret = jpeg_dec_open(&config, &decoder);
@@ -176,19 +234,27 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
     }
 
     // Prepare IO control
-    jpeg_dec_io_t io = {
-        .inbuf = const_cast<uint8_t*>(jpeg_data),
-        .inbuf_len = jpeg_size,
-        .inbuf_remain = jpeg_size,
-        .outbuf = output_buffer,
-        .out_size = output_buffer_size
-    };
+    jpeg_dec_io_t io;
+    memset(&io, 0, sizeof(io));
+    io.inbuf = const_cast<uint8_t*>(jpeg_data);
+    io.inbuf_len = jpeg_size;
+    io.inbuf_remain = jpeg_size;
+    io.outbuf = output_buffer;
+    io.out_size = output_buffer_size;
 
     // Parse header
     jpeg_dec_header_info_t header_info;
     ret = jpeg_dec_parse_header(decoder, &io, &header_info);
     if (ret != JPEG_ERR_OK) {
         ESP_LOGE(TAG, "Failed to parse JPEG header: %d", ret);
+        jpeg_dec_close(decoder);
+        return false;
+    }
+
+    // Verify output buffer size is sufficient
+    int required_size = model_width * model_height * 3; // RGB888
+    if (output_buffer_size < static_cast<size_t>(required_size)) {
+        ESP_LOGE(TAG, "Output buffer too small: %zu < %d", output_buffer_size, required_size);
         jpeg_dec_close(decoder);
         return false;
     }
@@ -285,25 +351,22 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
       return result;
     }
 
+    // Adjust zone to meet JPEG decoder requirements (multiples of 8)
+    CropZone adjusted_zone = adjust_zone_for_jpeg(zone, config_.camera_width, config_.camera_height);
+    
     // Get model input dimensions
     const int model_width = model_handler_->get_input_width();
     const int model_height = model_handler_->get_input_height();
     
-    // Configure JPEG decoder - ONLY SCALING, NO CLIPPING
-    // We'll handle cropping manually after decoding
-    jpeg_dec_config_t config = {
-        .output_type = JPEG_PIXEL_FORMAT_RGB888,
-        .scale = {
-            .width = static_cast<uint16_t>(model_width),
-            .height = static_cast<uint16_t>(model_height)
-        },
-        .clipper = {
-            .width = 0,  // NO CLIPPING - we'll crop after decoding
-            .height = 0  // NO CLIPPING
-        },
-        .rotate = JPEG_ROTATE_0D,
-        .block_enable = false
-    };
+    // Configure JPEG decoder with cropping and scaling
+    jpeg_dec_config_t config = DEFAULT_JPEG_DEC_CONFIG();
+    config.output_type = JPEG_PIXEL_FORMAT_RGB888;
+    config.scale.width = static_cast<uint16_t>(model_width);
+    config.scale.height = static_cast<uint16_t>(model_height);
+    config.clipper.width = static_cast<uint16_t>(adjusted_zone.x2 - adjusted_zone.x1);
+    config.clipper.height = static_cast<uint16_t>(adjusted_zone.y2 - adjusted_zone.y1);
+    config.rotate = JPEG_ROTATE_0D;
+    config.block_enable = false;
 
     jpeg_dec_handle_t decoder = nullptr;
     jpeg_error_t ret = jpeg_dec_open(&config, &decoder);
@@ -313,13 +376,13 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
         return result;
     }
 
-    jpeg_dec_io_t io = {
-        .inbuf = const_cast<uint8_t*>(jpeg_data),
-        .inbuf_len = jpeg_size,
-        .inbuf_remain = jpeg_size,
-        .outbuf = nullptr,
-        .out_size = 0
-    };
+    jpeg_dec_io_t io;
+    memset(&io, 0, sizeof(io));
+    io.inbuf = const_cast<uint8_t*>(jpeg_data);
+    io.inbuf_len = jpeg_size;
+    io.inbuf_remain = jpeg_size;
+    io.outbuf = nullptr;
+    io.out_size = 0;
 
     jpeg_dec_header_info_t header_info;
     ret = jpeg_dec_parse_header(decoder, &io, &header_info);
@@ -337,15 +400,23 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
         return result;
     }
 
-    // Allocate buffer for the full decoded image
-    uint8_t *full_decoded_buf = (uint8_t*)heap_caps_malloc(outbuf_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!full_decoded_buf) {
+    // Verify output size matches expected model input
+    const size_t expected_size = model_width * model_height * 3; // RGB888
+    if (outbuf_len != expected_size) {
+        ESP_LOGE(TAG, "Output buffer size mismatch: expected %zu, got %d", expected_size, outbuf_len);
+        jpeg_dec_close(decoder);
+        return result;
+    }
+
+    // Allocate aligned buffer for the decoded image
+    uint8_t *decoded_buf = (uint8_t*)jpeg_calloc_align(outbuf_len, 16);
+    if (!decoded_buf) {
         ESP_LOGE(TAG, "Failed to allocate output buffer");
         jpeg_dec_close(decoder);
         return result;
     }
 
-    io.outbuf = full_decoded_buf;
+    io.outbuf = decoded_buf;
     io.out_size = outbuf_len;
 
     ret = jpeg_dec_process(decoder, &io);
@@ -353,67 +424,21 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
 
     if (ret != JPEG_ERR_OK) {
         ESP_LOGE(TAG, "JPEG decoding failed: %d", ret);
-        heap_caps_free(full_decoded_buf);
+        jpeg_free_align(decoded_buf);
         return result;
     }
 
-    // Now manually crop the decoded image to the desired zone
-    // Calculate crop coordinates in the decoded image space
-    float scale_x = static_cast<float>(model_width) / config_.camera_width;
-    float scale_y = static_cast<float>(model_height) / config_.camera_height;
-    
-    int crop_x = static_cast<int>(zone.x1 * scale_x);
-    int crop_y = static_cast<int>(zone.y1 * scale_y);
-    int crop_width = static_cast<int>((zone.x2 - zone.x1) * scale_x);
-    int crop_height = static_cast<int>((zone.y2 - zone.y1) * scale_y);
-    
-    // Ensure crop region is within bounds
-    crop_x = std::max(0, std::min(crop_x, model_width - 1));
-    crop_y = std::max(0, std::min(crop_y, model_height - 1));
-    crop_width = std::min(crop_width, model_width - crop_x);
-    crop_height = std::min(crop_height, model_height - crop_y);
-
-    // Allocate final output buffer (RGB888, 3 bytes per pixel)
-    const size_t final_size = crop_width * crop_height * 3;
-    uint8_t *final_buf = (uint8_t*)heap_caps_malloc(final_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!final_buf) {
-        ESP_LOGE(TAG, "Failed to allocate final crop buffer");
-        heap_caps_free(full_decoded_buf);
-        return result;
-    }
-
-    // Perform manual cropping
-    for (int y = 0; y < crop_height; y++) {
-        const int src_y = crop_y + y;
-        const size_t src_offset = src_y * model_width * 3;
-        const size_t dst_offset = y * crop_width * 3;
-        
-        for (int x = 0; x < crop_width; x++) {
-            const int src_x = crop_x + x;
-            const size_t src_pixel = src_offset + src_x * 3;
-            const size_t dst_pixel = dst_offset + x * 3;
-            
-            // Copy RGB pixels
-            final_buf[dst_pixel] = full_decoded_buf[src_pixel];
-            final_buf[dst_pixel + 1] = full_decoded_buf[src_pixel + 1];
-            final_buf[dst_pixel + 2] = full_decoded_buf[src_pixel + 2];
-        }
-    }
-
-    // Free the full decoded buffer
-    heap_caps_free(full_decoded_buf);
-
-    // Create a custom deleter for the final buffer
+    // Create a custom deleter for the buffer
     auto final_deleter = [](uint8_t* p) {
-        if (p) heap_caps_free(p);
+        if (p) jpeg_free_align(p);
     };
     
-    std::unique_ptr<uint8_t[], decltype(final_deleter)> final_buffer(final_buf, final_deleter);
+    std::unique_ptr<uint8_t[], decltype(final_deleter)> final_buffer(decoded_buf, final_deleter);
     
     return ProcessResult(
         std::unique_ptr<TrackedBuffer>(
-            new TrackedBuffer(final_buffer.release(), true, false)),
-        final_size);
+            new TrackedBuffer(final_buffer.release(), false, true)), // jpeg_aligned = true
+        outbuf_len);
   }
 
   // For non-JPEG formats

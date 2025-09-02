@@ -8,6 +8,7 @@ from esphome.core import CORE, HexInt
 from esphome.components import esp32, sensor
 import esphome.components.esp32_camera as esp32_camera
 from esphome.cpp_generator import RawExpression
+from esphome.components import globals
 
 CODEOWNERS = ["@nl"]
 DEPENDENCIES = ['esp32', 'camera']
@@ -20,6 +21,7 @@ CONF_TENSOR_ARENA_SIZE = 'tensor_arena_size'
 CONF_CONFIDENCE_THRESHOLD = 'confidence_threshold'
 CONF_RAW_DATA_ID = 'raw_data_id'
 CONF_DEBUG = 'debug'
+CONF_DEBUG_IMAGE = 'debug_image'
 # CONF_DEBUG_DURATION = 'debug_duration' // can be enabled in  meter_reader_tflite.h #define DEBUG_DURATION
 # CONF_DEBUG_IMAGE_PATH = 'debug_image_path'
 CONF_SENSOR = 'meter_reader_value_sensor' 
@@ -59,6 +61,8 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_SENSOR): sensor.sensor_schema(accuracy_decimals=2),
     cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
     cv.Optional(CONF_DEBUG, default=False): cv.boolean, 
+    cv.Optional(CONF_DEBUG_IMAGE, default=False): cv.boolean, 
+    # cv.Optional('crop_zones_global'): cv.use_id(globals.GlobalVarComponent),
 }).extend(cv.polling_component_schema('60s'))
 
 async def to_code(config):
@@ -148,10 +152,9 @@ async def to_code(config):
            
     # cg.add_global(cg.RawStatement(template))
 
-    if config.get(CONF_DEBUG, False):
-        cg.add_define("DEBUG_METER_READER_TFLITE")
-        cg.add(var.set_debug_mode(True))
-        
+    if config.get(CONF_DEBUG_IMAGE, False):
+        cg.add_define("DEBUG_IMAGE_METER_READER_TFLITE")
+               
         # Load debug image
         component_dir = os.path.dirname(os.path.abspath(__file__))
         debug_image_path = os.path.join(component_dir, "debug.jpg")
@@ -180,3 +183,11 @@ async def to_code(config):
         
         # Process debug image immediately
         cg.add(var.test_with_debug_image())
+        
+    if config.get(CONF_DEBUG, False):
+        cg.add_define("DEBUG_METER_READER_TFLITE")
+        # cg.add(var.set_debug_mode(True))
+        
+    if 'crop_zones_global' in config:
+        crop_global = await cg.get_variable(config['crop_zones_global'])
+        cg.add(var.set_crop_zones_global(crop_global))
