@@ -8,6 +8,15 @@
 
 #pragma once
 
+// Prevent old JPEG headers from being included
+#define ESP_JPEG_DEC_H
+#define ESP_JPEG_COMMON_H
+
+// Include esp_new_jpeg FIRST, before any ESPHome camera headers
+#include "esp_jpeg_dec.h"
+#include "esp_jpeg_common.h"
+
+// Then include ESPHome headers
 #include "esphome/components/camera/camera.h"
 #include "crop_zones.h"
 #include "model_handler.h"
@@ -15,10 +24,7 @@
 #include <memory>
 #include <vector>
 #include <string>
-
-// Use the correct include path for esp_new_jpeg
-#include "esp_jpeg_dec.h"
-#include "esp_jpeg_common.h"
+#include <cstdint>
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -192,6 +198,9 @@ class ImageProcessor {
         
         return nullptr;
     }
+    
+    void scale_rgb888_image(const uint8_t* src_data, int src_width, int src_height,
+                           uint8_t* dst_data, int dst_width, int dst_height);
 
     ImageProcessorConfig config_;  ///< Processor configuration
     ModelHandler* model_handler_;  ///< Model handler reference
