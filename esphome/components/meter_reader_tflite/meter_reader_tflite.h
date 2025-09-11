@@ -12,6 +12,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/esp32_camera/esp32_camera.h"
 #include "esphome/components/camera/camera.h"
+#include "esphome/components/globals/globals_component.h"
 #include "model_handler.h"
 #include "memory_manager.h"
 #include "image_processor.h"
@@ -82,6 +83,11 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void set_camera(esp32_camera::ESP32Camera *camera) { camera_ = camera; }
   void set_model_config(const std::string &model_type);
   void set_confidence_sensor(sensor::Sensor *sensor) { confidence_sensor_ = sensor; }
+  
+  // Crop zones
+  void set_crop_zones_global_string(const std::string &zones_str) {
+    crop_zone_handler_.set_global_zones_string(zones_str);
+  }
 
   /**
    * @brief Print debug information about component state and memory usage.

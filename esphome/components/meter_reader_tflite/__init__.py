@@ -62,7 +62,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
     cv.Optional(CONF_DEBUG, default=False): cv.boolean, 
     cv.Optional(CONF_DEBUG_IMAGE, default=False): cv.boolean, 
-    # cv.Optional('crop_zones_global'): cv.use_id(globals.GlobalVarComponent),
+    cv.Optional('crop_zones_global'): cv.use_id(globals.GlobalsComponent),
 }).extend(cv.polling_component_schema('60s'))
 
 async def to_code(config):
@@ -190,4 +190,5 @@ async def to_code(config):
         
     if 'crop_zones_global' in config:
         crop_global = await cg.get_variable(config['crop_zones_global'])
-        cg.add(var.set_crop_zones_global(crop_global))
+        # Instead of passing the component, pass its value
+        cg.add(var.set_crop_zones_global_string(crop_global.value()))

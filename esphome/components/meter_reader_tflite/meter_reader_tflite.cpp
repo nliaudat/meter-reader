@@ -32,6 +32,9 @@ void MeterReaderTFLite::setup() {
         mark_failed();
         return;
     }
+	
+	// Apply crop zones from global variable if available
+	crop_zone_handler_.apply_global_zones();
 
     // Setup camera callback with frame buffer management
     camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {

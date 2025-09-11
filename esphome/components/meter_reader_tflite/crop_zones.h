@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/components/globals/globals_component.h"
 #include <vector>
 #include <string>
 
@@ -19,9 +20,18 @@ class CropZoneHandler {
   void parse_zones(const std::string &zones_json);
   const std::vector<CropZone>& get_zones() const { return zones_; }
   void set_default_zone(int width, int height);
+  
+  // Simple method to set the global string
+  void set_global_zones_string(const std::string &zones_str) {
+    global_zones_string_ = zones_str;
+  }
+  
+  // Check and apply global variable if available
+  void apply_global_zones();
 
  protected:
   std::vector<CropZone> zones_;
+  std::string global_zones_string_;
 };
 
 }  // namespace meter_reader_tflite
