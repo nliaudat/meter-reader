@@ -1,4 +1,4 @@
-# """Component to use TensorFlow Lite Micro to read a meter."""
+"""Component to use TensorFlow Lite Micro to read a meter."""
 import esphome.codegen as cg
 import esphome.config_validation as cv
 import os
@@ -153,7 +153,8 @@ async def to_code(config):
     # cg.add_global(cg.RawStatement(template))
 
     if config.get(CONF_DEBUG_IMAGE, False):
-        cg.add_define("DEBUG_IMAGE_METER_READER_TFLITE")
+        cg.add_define("DEBUG_METER_READER_TFLITE") #"DEBUG_IMAGE_METER_READER_TFLITE")
+        cg.add(var.set_debug_mode(True))
                
         # Load debug image
         component_dir = os.path.dirname(os.path.abspath(__file__))
@@ -186,7 +187,7 @@ async def to_code(config):
         
     if config.get(CONF_DEBUG, False):
         cg.add_define("DEBUG_METER_READER_TFLITE")
-        # cg.add(var.set_debug_mode(True))
+        cg.add(var.set_debug_mode(True))
         
     if 'crop_zones_global' in config:
         crop_global = await cg.get_variable(config['crop_zones_global'])

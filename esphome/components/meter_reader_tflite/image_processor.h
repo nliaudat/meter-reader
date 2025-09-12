@@ -8,23 +8,22 @@
 
 #pragma once
 
-// Prevent old JPEG headers from being included
-#define ESP_JPEG_DEC_H
-#define ESP_JPEG_COMMON_H
-
-// Include esp_new_jpeg FIRST, before any ESPHome camera headers
-#include "esp_jpeg_dec.h"
-#include "esp_jpeg_common.h"
-
-// Then include ESPHome headers
 #include "esphome/components/camera/camera.h"
 #include "crop_zones.h"
 #include "model_handler.h"
 #include "esp_heap_caps.h"
+#include "esp_log.h"
 #include <memory>
 #include <vector>
 #include <string>
-#include <cstdint>
+#include <mutex>
+#include <set>
+
+// Use the correct include path for esp_new_jpeg
+#include "esp_jpeg_dec.h"
+#include "esp_jpeg_common.h"
+
+static const char *const TAG = "ImageProcessor";
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -46,7 +45,51 @@ struct ImageProcessorConfig {
    * @return true if configuration is valid, false otherwise
    */
   bool validate() const {
-    return camera_width > 0 && camera_height > 0 && !pixel_format.empty();
+    if (camera_width <= 0 || camera_height <= 0) {
+      return false;
+    }
+    
+    if (pixel_format.empty()) {
+      return false;
+    }
+    
+    static const std::set<std::string> valid_formats = {
+      "RGB888", "RGB565", "YUV422", "GRAYSCALE", "JPEG"
+    };
+    
+    return valid_formats.find(pixel_format) != valid_formats.end();
+  }
+};
+
+/**
+ * @struct ProcessingStats
+ * @brief Statistics for image processing performance monitoring.
+ */
+struct ProcessingStats {
+  uint32_t total_frames{0};
+  uint32_t failed_frames{0};
+  uint32_t total_processing_time_ms{0};
+  uint32_t peak_memory_usage{0};
+  uint32_t jpeg_decoding_errors{0};
+  uint32_t memory_allocation_errors{0};
+  
+  void reset() {
+    total_frames = 0;
+    failed_frames = 0;
+    total_processing_time_ms = 0;
+    peak_memory_usage = 0;
+    jpeg_decoding_errors = 0;
+    memory_allocation_errors = 0;
+  }
+  
+  float get_success_rate() const {
+    if (total_frames == 0) return 0.0f;
+    return (static_cast<float>(total_frames - failed_frames) / total_frames) * 100.0f;
+  }
+  
+  float get_avg_processing_time() const {
+    if (total_frames == 0) return 0.0f;
+    return static_cast<float>(total_processing_time_ms) / total_frames;
   }
 };
 
@@ -77,20 +120,20 @@ class ImageProcessor {
         TrackedBuffer(uint8_t* ptr, bool is_spiram, bool is_jpeg_aligned = false) 
             : ptr_(ptr), is_spiram_(is_spiram), is_jpeg_aligned_(is_jpeg_aligned) {}
         
-        /**
-         * @brief Destructor that frees memory appropriately.
-         */
-        ~TrackedBuffer() {
-            if (ptr_) {
-                if (is_jpeg_aligned_) {
-                    jpeg_free_align(ptr_);
-                } else if (is_spiram_) {
-                    heap_caps_free(ptr_);
-                } else {
-                    delete[] ptr_;
-                }
-            }
-        }
+		/**
+		 * @brief Destructor that frees memory appropriately.
+		 */
+		~TrackedBuffer() {
+			if (ptr_) {
+				if (is_jpeg_aligned_) {
+					jpeg_free_align(ptr_);
+				} else if (is_spiram_) {
+					heap_caps_free(ptr_);
+				} else {
+					delete[] ptr_;
+				}
+			}
+		}
         
         uint8_t* get() { return ptr_; }                   ///< Get raw pointer
         const uint8_t* get() const { return ptr_; }       ///< Get const raw pointer
@@ -117,6 +160,8 @@ class ImageProcessor {
         ProcessResult() : data(nullptr), size(0) {}  ///< Default constructor
         ProcessResult(UniqueBufferPtr&& ptr, size_t sz)  ///< Parameterized constructor
             : data(std::move(ptr)), size(sz) {}
+        
+        operator bool() const { return static_cast<bool>(data); }
     };
 
     /**
@@ -150,6 +195,24 @@ class ImageProcessor {
         uint8_t* output_buffer,
         size_t output_buffer_size);
 
+    /**
+     * @brief Get processing statistics.
+     * @return Current processing statistics
+     */
+    const ProcessingStats& get_stats() const { return stats_; }
+    
+    /**
+     * @brief Reset processing statistics.
+     */
+    void reset_stats() { stats_.reset(); }
+    
+    /**
+     * @brief Validate input image for processing.
+     * @param image Camera image to validate
+     * @return true if image is valid, false otherwise
+     */
+    bool validate_input_image(std::shared_ptr<camera::CameraImage> image) const;
+
  private:
     ProcessResult process_zone(
         std::shared_ptr<camera::CameraImage> image,
@@ -174,12 +237,25 @@ class ImageProcessor {
         size_t output_buffer_size);
 
     bool validate_zone(const CropZone &zone) const;
+    
+    bool validate_buffer_size(size_t required, size_t available, const char* context) const;
+    
+    const char* jpeg_error_to_string(jpeg_error_t error) const;
 
-    UniqueBufferPtr allocate_image_buffer(size_t size) {
-        uint8_t* buf = nullptr;
-        bool is_spiram = false;
-        
-        // Try SPIRAM first
+   UniqueBufferPtr allocate_image_buffer(size_t size) {
+    uint8_t* buf = nullptr;
+    bool is_spiram = false;
+    bool is_jpeg_aligned = false;
+    
+    // For JPEG decoding, we need 16-byte aligned memory
+    if (config_.pixel_format == "JPEG") {
+        buf = (uint8_t*)jpeg_calloc_align(size, 16);
+        is_jpeg_aligned = (buf != nullptr);
+        if (buf) {
+            ESP_LOGD(TAG, "Allocated %zu bytes with jpeg_calloc_align (16-byte aligned)", size);
+        }
+    } else {
+        // Try SPIRAM first for non-JPEG formats
         #ifdef CONFIG_SPIRAM
         if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >= size) {
             buf = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -191,20 +267,35 @@ class ImageProcessor {
         if (!buf) {
             buf = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
         }
-        
-        if (buf) {
-            return std::unique_ptr<TrackedBuffer>(new TrackedBuffer(buf, is_spiram));
-        }
-        
-        return nullptr;
     }
     
-    void scale_rgb888_image(const uint8_t* src_data, int src_width, int src_height,
+    if (buf) {
+        // Update peak memory usage
+        stats_.peak_memory_usage = std::max(stats_.peak_memory_usage, static_cast<uint32_t>(size));
+        return std::unique_ptr<TrackedBuffer>(new TrackedBuffer(buf, is_spiram, is_jpeg_aligned));
+    }
+    
+    stats_.memory_allocation_errors++;
+    ESP_LOGE(TAG, "Failed to allocate %zu bytes", size);
+    return nullptr;
+}
+	
+	void scale_rgb888_image(const uint8_t* src_data, int src_width, int src_height,
                            uint8_t* dst_data, int dst_width, int dst_height);
+						   
+	bool process_raw_zone_to_buffer_from_rgb(
+        const uint8_t* rgb_data,
+        int src_width,
+        int src_height,
+        const CropZone &zone,
+        uint8_t* output_buffer,
+        size_t output_buffer_size);
 
     ImageProcessorConfig config_;  ///< Processor configuration
     ModelHandler* model_handler_;  ///< Model handler reference
     int bytes_per_pixel_;          ///< Bytes per pixel for current format
+    ProcessingStats stats_;        ///< Processing statistics
+    mutable std::mutex processing_mutex_; ///< Thread safety mutex
 };
 
 }  // namespace meter_reader_tflite
