@@ -22,6 +22,8 @@ static const char *const TAG = "ImageProcessor";
 
 /**
  * @brief Constructs an ImageProcessor object.
+  * @param config Configuration for the image processor.
+ * @param model_handler Pointer to the ModelHandler for model input dimensions.
  */
 ImageProcessor::ImageProcessor(const ImageProcessorConfig &config, 
                              ModelHandler* model_handler)
@@ -63,25 +65,27 @@ ImageProcessor::ImageProcessor(const ImageProcessorConfig &config,
 
 /**
  * @brief Adjusts crop zone to nearest multiple of 8 for JPEG decoder requirements.
+ * @param zone Original crop zone to adjust
+ * @return Adjusted crop zone with dimensions multiple of 8
  */
 CropZone adjust_zone_for_jpeg(const CropZone &zone, int max_width, int max_height) {
     CropZone adjusted = zone;
     
     // Adjust width to nearest multiple of 8
     int width = zone.x2 - zone.x1;
-    int adjusted_width = (width + 4) / 8 * 8;
+    int adjusted_width = (width + 4) / 8 * 8; // Round to nearest multiple of 8
     if (adjusted_width > width) {
-        adjusted_width -= 8;
+        adjusted_width -= 8; // Ensure we don't exceed original bounds
     }
     adjusted_width = std::max(8, adjusted_width);
     
     // Adjust height to nearest multiple of 8
     int height = zone.y2 - zone.y1;
-    int adjusted_height = (height + 4) / 8 * 8;
+    int adjusted_height = (height + 4) / 8 * 8; // Round to nearest multiple of 8
     if (adjusted_height > height) {
         adjusted_height -= 8;
     }
-    adjusted_height = std::max(8, adjusted_height);
+    adjusted_height = std::max(8, adjusted_height);  // Minimum 8 pixels
     
     // Center the adjusted zone within original bounds
     adjusted.x1 = zone.x1 + (width - adjusted_width) / 2;
@@ -112,6 +116,9 @@ CropZone adjust_zone_for_jpeg(const CropZone &zone, int max_width, int max_heigh
 
 /**
  * @brief Splits the input image into specified crop zones and processes each.
+ * @param image A shared pointer to the camera image.
+ * @param zones A vector of CropZone objects defining regions to process.
+ * @return A vector of ProcessResult, each containing processed image data for a zone.
  */
 std::vector<ImageProcessor::ProcessResult> ImageProcessor::split_image_in_zone(
     std::shared_ptr<camera::CameraImage> image,
@@ -121,6 +128,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::split_image_in_zone(
   ESP_LOGD(TAG, "Starting image processing");
   ESP_LOGD(TAG, "Input image size: %zu bytes", image->get_data_length());
 
+  // If no zones are specified, process the full image.
   if (zones.empty()) {
     ESP_LOGD(TAG, "No zones specified - processing full image");
     CropZone full_zone{0, 0, config_.camera_width, config_.camera_height};
@@ -131,7 +139,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::split_image_in_zone(
     } else {
       ESP_LOGE(TAG, "Failed to process full image");
     }
-  } else {
+  } else { // Process each specified crop zone.
     ESP_LOGD(TAG, "Processing %d crop zones", zones.size());
     for (size_t i = 0; i < zones.size(); i++) {
       ESP_LOGD(TAG, "Processing zone %d: [%d,%d,%d,%d]", 
@@ -153,6 +161,7 @@ std::vector<ImageProcessor::ProcessResult> ImageProcessor::split_image_in_zone(
 
 /**
  * @brief Processes a zone directly into a pre-allocated buffer for minimal memory usage.
+ * @brief Processes JPEG zone directly into output buffer using esp_new_jpeg decoder.
  */
 bool ImageProcessor::process_zone_to_buffer(
     std::shared_ptr<camera::CameraImage> image,
@@ -180,6 +189,8 @@ bool ImageProcessor::process_zone_to_buffer(
     DURATION_END("process_zone_to_buffer");
     return success;
 }
+
+
 
 /**
  * @brief Processes JPEG zone directly into output buffer.
@@ -211,40 +222,64 @@ bool ImageProcessor::process_raw_zone_to_buffer(
     const int model_height = model_handler_->get_input_height();
     const int model_channels = model_handler_->get_input_channels();
     
-    const uint8_t* src_data = image->get_data_buffer();
-    const int src_width = config_.camera_width;
-    const int src_height = config_.camera_height;
+    // Calculate size based on model input type
+    bool is_float_model = model_handler_->input_tensor()->type == kTfLiteFloat32;
+    size_t bytes_per_value = is_float_model ? 4 : 1;
+    size_t required_size = model_width * model_height * model_channels * bytes_per_value;
     
     // Verify output buffer is large enough
-    const size_t required_size = model_width * model_height * model_channels;
     if (output_buffer_size < required_size) {
         ESP_LOGE(TAG, "Output buffer too small: %zu < %zu", output_buffer_size, required_size);
         return false;
     }
 
+    const uint8_t* src_data = image->get_data_buffer();
+    const int src_width = config_.camera_width;
+    const int src_height = config_.camera_height;
+
     // Calculate scaling factors
     const uint32_t width_scale = ((zone.x2 - zone.x1) << 16) / model_width;
     const uint32_t height_scale = ((zone.y2 - zone.y1) << 16) / model_height;
 
-    // Process directly into output buffer
-    for (int y = 0; y < model_height; y++) {
-        const int src_y = zone.y1 + ((y * height_scale) >> 16);
-        const size_t src_row_offset = src_y * src_width * bytes_per_pixel_;
-        
-        for (int x = 0; x < model_width; x++) {
-            const int src_x = zone.x1 + ((x * width_scale) >> 16);
-            const size_t src_pixel_offset = src_row_offset + src_x * bytes_per_pixel_;
-            const size_t dst_pixel_offset = (y * model_width + x) * model_channels;
+    if (is_float_model) {
+        // Convert to float32 and normalize to [0, 1]
+        float* float_dst = reinterpret_cast<float*>(output_buffer);
+        for (int y = 0; y < model_height; y++) {
+            const int src_y = zone.y1 + ((y * height_scale) >> 16);
+            const size_t src_row_offset = src_y * src_width * bytes_per_pixel_;
+            
+            for (int x = 0; x < model_width; x++) {
+                const int src_x = zone.x1 + ((x * width_scale) >> 16);
+                const size_t src_pixel_offset = src_row_offset + src_x * bytes_per_pixel_;
+                const size_t dst_pixel_offset = (y * model_width + x) * model_channels;
 
-            if (bytes_per_pixel_ == 1) { // Grayscale
-                const uint8_t val = src_data[src_pixel_offset];
-                output_buffer[dst_pixel_offset] = val;
-                output_buffer[dst_pixel_offset+1] = val;
-                output_buffer[dst_pixel_offset+2] = val;
-            } else { // RGB
                 for (int c = 0; c < model_channels; c++) {
-                    output_buffer[dst_pixel_offset + c] = 
-                        src_data[src_pixel_offset + (c % bytes_per_pixel_)];
+                    uint8_t pixel_value = src_data[src_pixel_offset + (c % bytes_per_pixel_)];
+                    float_dst[dst_pixel_offset + c] = static_cast<float>(pixel_value) / 255.0f;
+                }
+            }
+        }
+    } else {
+        // uint8 model - direct copy
+        for (int y = 0; y < model_height; y++) {
+            const int src_y = zone.y1 + ((y * height_scale) >> 16);
+            const size_t src_row_offset = src_y * src_width * bytes_per_pixel_;
+            
+            for (int x = 0; x < model_width; x++) {
+                const int src_x = zone.x1 + ((x * width_scale) >> 16);
+                const size_t src_pixel_offset = src_row_offset + src_x * bytes_per_pixel_;
+                const size_t dst_pixel_offset = (y * model_width + x) * model_channels;
+
+                if (bytes_per_pixel_ == 1) { // Grayscale
+                    const uint8_t val = src_data[src_pixel_offset];
+                    output_buffer[dst_pixel_offset] = val;
+                    output_buffer[dst_pixel_offset+1] = val;
+                    output_buffer[dst_pixel_offset+2] = val;
+                } else { // RGB
+                    for (int c = 0; c < model_channels; c++) {
+                        output_buffer[dst_pixel_offset + c] = 
+                            src_data[src_pixel_offset + (c % bytes_per_pixel_)];
+                    }
                 }
             }
         }
@@ -294,9 +329,16 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
     const int model_width = model_handler_->get_input_width();
     const int model_height = model_handler_->get_input_height();
     const int model_channels = model_handler_->get_input_channels();
-    const size_t required_size = model_width * model_height * model_channels;
     
-    ESP_LOGD(TAG, "Model requires %dx%dx%d (%zu bytes)", model_width, model_height, model_channels, required_size);    
+    // Calculate size based on model input type (float32 = 4 bytes per value)
+    bool is_float_model = model_handler_->input_tensor()->type == kTfLiteFloat32;
+    size_t bytes_per_value = is_float_model ? 4 : 1;
+    size_t required_size = model_width * model_height * model_channels * bytes_per_value;
+    
+    ESP_LOGD(TAG, "Model requires %dx%dx%d (%s, %zu bytes)", 
+             model_width, model_height, model_channels,
+             is_float_model ? "float32" : "uint8",
+             required_size);
 
     // Allocate buffer for the scaled output image.
     UniqueBufferPtr buffer = allocate_image_buffer(required_size);
@@ -311,24 +353,44 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
 
     uint8_t* dst = buffer->get();
     
-    // Optimized scaling loop to resize the image.
-    for (int y = 0; y < model_height; y++) {
-        const int src_y = zone.y1 + ((y * height_scale) >> 16);
-        const size_t src_row_offset = src_y * src_width * bytes_per_pixel_;
-        
-        for (int x = 0; x < model_width; x++) {
-            const int src_x = zone.x1 + ((x * width_scale) >> 16);
-            const size_t src_pixel_offset = src_row_offset + src_x * bytes_per_pixel_;
-            const size_t dst_pixel_offset = (y * model_width + x) * model_channels;
+    if (is_float_model) {
+        // Convert to float32 and normalize to [0, 1]
+        float* float_dst = reinterpret_cast<float*>(dst);
+        for (int y = 0; y < model_height; y++) {
+            const int src_y = zone.y1 + ((y * height_scale) >> 16);
+            const size_t src_row_offset = src_y * src_width * bytes_per_pixel_;
+            
+            for (int x = 0; x < model_width; x++) {
+                const int src_x = zone.x1 + ((x * width_scale) >> 16);
+                const size_t src_pixel_offset = src_row_offset + src_x * bytes_per_pixel_;
+                const size_t dst_pixel_offset = (y * model_width + x) * model_channels;
 
-            if (bytes_per_pixel_ == 1) { // Grayscale
-                const uint8_t val = src_data[src_pixel_offset];
-                dst[dst_pixel_offset] = val;
-                dst[dst_pixel_offset+1] = val;
-                dst[dst_pixel_offset+2] = val;
-            } else { // RGB
                 for (int c = 0; c < model_channels; c++) {
-                    dst[dst_pixel_offset + c] = src_data[src_pixel_offset + (c % bytes_per_pixel_)];
+                    uint8_t pixel_value = src_data[src_pixel_offset + (c % bytes_per_pixel_)];
+                    float_dst[dst_pixel_offset + c] = static_cast<float>(pixel_value) / 255.0f;
+                }
+            }
+        }
+    } else {
+        // uint8 model - direct copy
+        for (int y = 0; y < model_height; y++) {
+            const int src_y = zone.y1 + ((y * height_scale) >> 16);
+            const size_t src_row_offset = src_y * src_width * bytes_per_pixel_;
+            
+            for (int x = 0; x < model_width; x++) {
+                const int src_x = zone.x1 + ((x * width_scale) >> 16);
+                const size_t src_pixel_offset = src_row_offset + src_x * bytes_per_pixel_;
+                const size_t dst_pixel_offset = (y * model_width + x) * model_channels;
+
+                if (bytes_per_pixel_ == 1) { // Grayscale
+                    const uint8_t val = src_data[src_pixel_offset];
+                    dst[dst_pixel_offset] = val;
+                    dst[dst_pixel_offset+1] = val;
+                    dst[dst_pixel_offset+2] = val;
+                } else { // RGB
+                    for (int c = 0; c < model_channels; c++) {
+                        dst[dst_pixel_offset + c] = src_data[src_pixel_offset + (c % bytes_per_pixel_)];
+                    }
                 }
             }
         }
