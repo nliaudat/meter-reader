@@ -1,4 +1,4 @@
-"""Component to use TensorFlow Lite Micro to read a meter."""
+# """Component to use TensorFlow Lite Micro to read a meter."""
 import esphome.codegen as cg
 import esphome.config_validation as cv
 import os
@@ -8,6 +8,7 @@ from esphome.core import CORE, HexInt
 from esphome.components import esp32, sensor
 import esphome.components.esp32_camera as esp32_camera
 from esphome.cpp_generator import RawExpression
+from esphome.components import globals
 
 CODEOWNERS = ["@nl"]
 DEPENDENCIES = ['esp32', 'camera']
@@ -20,6 +21,7 @@ CONF_TENSOR_ARENA_SIZE = 'tensor_arena_size'
 CONF_CONFIDENCE_THRESHOLD = 'confidence_threshold'
 CONF_RAW_DATA_ID = 'raw_data_id'
 CONF_DEBUG = 'debug'
+CONF_DEBUG_IMAGE = 'debug_image'
 # CONF_DEBUG_DURATION = 'debug_duration' // can be enabled in  meter_reader_tflite.h #define DEBUG_DURATION
 # CONF_DEBUG_IMAGE_PATH = 'debug_image_path'
 CONF_SENSOR = 'meter_reader_value_sensor' 
@@ -59,6 +61,8 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_SENSOR): sensor.sensor_schema(accuracy_decimals=2),
     cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
     cv.Optional(CONF_DEBUG, default=False): cv.boolean, 
+    cv.Optional(CONF_DEBUG_IMAGE, default=False): cv.boolean, 
+    cv.Optional('crop_zones_global'): cv.use_id(globals.GlobalsComponent),
 }).extend(cv.polling_component_schema('60s'))
 
 async def to_code(config):
@@ -69,16 +73,22 @@ async def to_code(config):
         ref="1.3.3~1"
     )
     
-    # Get pixel format from substitutions
-    # pixel_format = CORE.config['substitutions'].get('camera_pixel_format', 'RGB888')
     
-    # If pixel format is JPEG, add JPEG decoder component and define
+    pixel_format = CORE.config["substitutions"].get("camera_pixel_format", "RGB888")
+    
     # if pixel_format == "JPEG":
         # cg.add_define("USE_JPEG")
         # esp32.add_idf_component(
             # name="espressif/esp_jpeg",
             # ref="1.3.1"
         # )
+        
+
+
+    esp32.add_idf_component(
+        name="espressif/esp_new_jpeg",
+        ref="0.6.1"
+    )
         
     # esp32.add_idf_component( ## not used actually
         # name="espressif/esp-dl",
@@ -121,60 +131,64 @@ async def to_code(config):
     
     # Get camera resolution from substitutions
     width, height = 800, 600  # Defaults
-    if CORE.config['substitutions'].get('camera_resolution'):
-        res = CORE.config['substitutions']['camera_resolution']
+    if CORE.config["substitutions"].get("camera_resolution"):
+        res = CORE.config["substitutions"]["camera_resolution"]
         if 'x' in res:
             width, height = map(int, res.split('x'))
     
-    # Get pixel format from substitutions
-    pixel_format = CORE.config['substitutions'].get('camera_pixel_format', 'RGB888')
-    
-    # Set camera format
-    cg.add(var.set_camera_image_format(width, height, pixel_format))
+    pixel_format = CORE.config["substitutions"].get("camera_pixel_format", "RGB888")
+    if pixel_format == "JPEG":   cg.add(var.set_camera_image_format(width, height, pixel_format))
     
     # register debug service (called by service: meter_reader_tflite_my_reader_debug)
     cg.add_define("USE_SERVICE_DEBUG")
     var = await cg.get_variable(config[CONF_ID])
-    template = """
-    register_service("%s_debug", 
-        [](%s *comp) { comp->dump_debug_info(); },
-        %s);
-    """ % (config[CONF_ID], 
-           "esphome::meter_reader_tflite::MeterReaderTFLite",
-           config[CONF_ID])
+    # template = """
+    # register_service("%s_debug", 
+        # [](%s *comp) { comp->dump_debug_info(); },
+        # %s);
+    # """ % (config[CONF_ID], 
+           # "esphome::meter_reader_tflite::MeterReaderTFLite",
+           # config[CONF_ID])
            
+    # cg.add_global(cg.RawStatement(template))
 
-
-    # if config.get(CONF_DEBUG, False): # Default to False if not specified
-        # cg.add_define("DEBUG_METER_READER_TFLITE")
+    if config.get(CONF_DEBUG_IMAGE, False):
+        cg.add_define("DEBUG_IMAGE_METER_READER_TFLITE")
+               
+        # Load debug image
+        component_dir = os.path.dirname(os.path.abspath(__file__))
+        debug_image_path = os.path.join(component_dir, "debug.jpg")
+        
+        if not os.path.exists(debug_image_path):
+            raise cv.Invalid(f"Debug image not found at {debug_image_path}")
+        else:
+            with open(debug_image_path, "rb") as f:
+                debug_image_data = f.read()
+        
+        # Create debug image array
+        debug_image_id = f"{config[CONF_ID]}_debug_image"
+        cg.add_global(
+            cg.RawStatement(
+               f"static const uint8_t {debug_image_id}[] = {{{', '.join(f'0x{x:02x}' for x in debug_image_data)}}};"            )
+        )
+        
+        cg.add(
+            var.set_debug_image(
+                cg.RawExpression(debug_image_id),
+                len(debug_image_data)
+            )
+        )
+        
+        cg.add(var.set_camera_image_format(640, 480, "JPEG"))
+        
+        # Process debug image immediately
+        cg.add(var.test_with_debug_image())
+        
+    if config.get(CONF_DEBUG, False):
+        cg.add_define("DEBUG_METER_READER_TFLITE")
         # cg.add(var.set_debug_mode(True))
         
-        # # Load debug image
-        # component_dir = os.path.dirname(os.path.abspath(__file__))
-        # debug_image_path = os.path.join(component_dir, "debug.jpg")
-        
-        # if not os.path.exists(debug_image_path):
-            # raise cv.Invalid(f"Debug image not found at {debug_image_path}")
-        # else:
-            # with open(debug_image_path, "rb") as f:
-                # debug_image_data = f.read()
-        
-        # # Create debug image array
-        # debug_image_id = f"{config[CONF_ID]}_debug_image"
-        # cg.add_global(
-            # cg.RawStatement(
-                # f"static const uint8_t {debug_image_id}[] = {{{','.join(f'0x{x:02x}' for x in debug_image_data)}}};"
-            # )
-        # )
-        
-        # cg.add(
-            # var.set_debug_image(
-                # cg.RawExpression(debug_image_id),
-                # len(debug_image_data)
-            # )
-        # )
-        
-        # cg.add(var.set_camera_image_format(640, 480, "JPEG"))
-        
-        # # Process debug image immediately
-        # # cg.add(var.test_with_debug_image())
+    if 'crop_zones_global' in config:
+        crop_global = await cg.get_variable(config['crop_zones_global'])
+        # Instead of passing the component, pass its value
+        cg.add(var.set_crop_zones_global_string(crop_global.value()))

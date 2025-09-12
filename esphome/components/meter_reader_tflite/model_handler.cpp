@@ -117,19 +117,27 @@ bool ModelHandler::validate_model_config() {
     auto* input = input_tensor();
     if (!input) return false;
 
-    // Log actual model requirements
-    ESP_LOGI(TAG, "Model input requirements:");
-    ESP_LOGI(TAG, "  Dimensions: %d x %d x %d",
-            input->dims->data[1], 
-            input->dims->data[2],
-            input->dims->data[3]);
-    ESP_LOGI(TAG, "  Type: %s", 
-            input->type == kTfLiteUInt8 ? "uint8" : "float32");
-    ESP_LOGI(TAG, "  Bytes required: %d", input->bytes);
+    // Detailed model input information
+    ESP_LOGI(TAG, "Model input tensor details:");
+    ESP_LOGI(TAG, "  - Type: %s", input->type == kTfLiteUInt8 ? "uint8" : "float32");
+    ESP_LOGI(TAG, "  - Bytes: %d", input->bytes);
+    ESP_LOGI(TAG, "  - Dimensions: %d", input->dims->size);
+    for (int i = 0; i < input->dims->size; i++) {
+        ESP_LOGI(TAG, "    - dim[%d]: %d", i, input->dims->data[i]);
+    }
+    
+    // Calculate expected size
+    size_t expected_size = 1;
+    for (int i = 1; i < input->dims->size; i++) {
+        expected_size *= input->dims->data[i];
+    }
+    ESP_LOGI(TAG, "  - Expected data size: %zu bytes", expected_size);
 
     // Update config with ACTUAL model dimensions
-    config_.input_size = {input->dims->data[1], input->dims->data[2]};
-    config_.input_channels = input->dims->data[3];
+    if (input->dims->size >= 4) {
+        config_.input_size = {input->dims->data[1], input->dims->data[2]};
+        config_.input_channels = input->dims->data[3];
+    }
     
     return true;
 }
@@ -208,6 +216,13 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         // return false;
     // }
 
+
+	  // Validate input size
+	  if (input_size != input->bytes) {
+		ESP_LOGE(TAG, "Input size mismatch! Expected %d, got %zu", input->bytes, input_size);
+		return false;
+	  }
+  
     // Handle different input types
     if (input->type == kTfLiteUInt8) {
         // Quantized model processing
