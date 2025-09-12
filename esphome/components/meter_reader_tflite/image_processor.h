@@ -280,8 +280,6 @@ class ImageProcessor {
     return nullptr;
 }
 	
-	void scale_rgb888_image(const uint8_t* src_data, int src_width, int src_height,
-                           uint8_t* dst_data, int dst_width, int dst_height);
 						   
 	bool process_raw_zone_to_buffer_from_rgb(
         const uint8_t* rgb_data,

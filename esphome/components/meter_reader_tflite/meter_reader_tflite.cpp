@@ -71,6 +71,18 @@ void MeterReaderTFLite::setup() {
             
         ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
         this->print_debug_info();
+		
+        // Process debug image AFTER ImageProcessor is initialized
+        #ifdef DEBUG_METER_READER_TFLITE
+        if (debug_image_) {
+            ESP_LOGI(TAG, "Processing debug image after setup completion");
+            this->set_timeout(1000, [this]() { // Small delay to ensure everything is ready
+                this->test_with_debug_image();
+            });
+        }
+        #endif
+		
+		
     });
 }
 
@@ -139,6 +151,13 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
     if (!frame || !frame->get_data_buffer() || frame->get_data_length() == 0) {
         ESP_LOGE(TAG, "Invalid frame received for processing");
         DURATION_END("process_full_image (invalid frame)");
+        return;
+    }
+	
+	// Check if ImageProcessor is ready
+    if (!image_processor_) {
+        ESP_LOGE(TAG, "ImageProcessor not initialized");
+        DURATION_END("process_full_image (no processor)");
         return;
     }
 
@@ -436,12 +455,28 @@ void MeterReaderTFLite::set_debug_image(const uint8_t* data, size_t size) {
 
 void MeterReaderTFLite::test_with_debug_image() {
     if (debug_image_) {
-        ESP_LOGI(TAG, "Processing with debug image...");
+        // Check if ImageProcessor is ready
+        if (!image_processor_) {
+            ESP_LOGE(TAG, "ImageProcessor not initialized yet");
+            return;
+        }
+        
+        // Ensure camera dimensions are set for debug image
+        if (camera_width_ == 0 || camera_height_ == 0) {
+            ESP_LOGE(TAG, "Camera dimensions not set for debug image processing");
+            return;
+        }
+        
+        // Use static debug zones instead of parsed zones
+        crop_zone_handler_.set_debug_zones();
+        
+        ESP_LOGI(TAG, "Processing debug image with static crop zones...");
         process_full_image(debug_image_);
     } else {
         ESP_LOGE(TAG, "No debug image set to process.");
     }
 }
+
 
 void MeterReaderTFLite::set_debug_mode(bool debug_mode) {
     debug_mode_ = debug_mode;

@@ -20,6 +20,7 @@ class CropZoneHandler {
   void parse_zones(const std::string &zones_json);
   const std::vector<CropZone>& get_zones() const { return zones_; }
   void set_default_zone(int width, int height);
+  void set_debug_zones();
   
   // Simple method to set the global string
   void set_global_zones_string(const std::string &zones_str) {
