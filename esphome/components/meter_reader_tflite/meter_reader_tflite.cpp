@@ -406,6 +406,48 @@ size_t MeterReaderTFLite::get_arena_peak_bytes() const {
 // }
 
 
+#ifdef DEBUG_METER_READER_TFLITE
+class DebugCameraImage : public camera::CameraImage {
+public:
+    DebugCameraImage(const uint8_t* data, size_t size, int width, int height)
+        : data_(data, data + size), width_(width), height_(height) {}
+
+    uint8_t* get_data_buffer() override { return data_.data(); }
+    size_t get_data_length() override { return data_.size(); }
+    bool was_requested_by(camera::CameraRequester requester) const override { 
+        return false;  // Debug image isn’t tied to requester
+    }
+
+    int get_width() const { return width_; }
+    int get_height() const { return height_; }
+
+private:
+    std::vector<uint8_t> data_;
+    int width_;
+    int height_;
+};
+
+void MeterReaderTFLite::set_debug_image(const uint8_t* data, size_t size) {
+    debug_image_ = std::make_shared<DebugCameraImage>(
+        data, size, camera_width_, camera_height_);
+    ESP_LOGI(TAG, "Debug image set: %zu bytes (%dx%d)", 
+             size, camera_width_, camera_height_);
+}
+
+void MeterReaderTFLite::test_with_debug_image() {
+    if (debug_image_) {
+        ESP_LOGI(TAG, "Processing with debug image...");
+        process_full_image(debug_image_);
+    } else {
+        ESP_LOGE(TAG, "No debug image set to process.");
+    }
+}
+
+void MeterReaderTFLite::set_debug_mode(bool debug_mode) {
+    debug_mode_ = debug_mode;
+    ESP_LOGI(TAG, "Debug mode %s", debug_mode ? "enabled" : "disabled");
+}
+#endif
 
 }  // namespace meter_reader_tflite
 }  // namespace esphome

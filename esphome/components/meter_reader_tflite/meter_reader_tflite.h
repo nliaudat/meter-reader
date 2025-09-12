@@ -23,6 +23,9 @@
 #include <string>
 #include <atomic>
 
+// #include <mutex> // needs CONFIG_FREERTOS_SUPPORT_STATIC_ALLOCATION=y # for frame_mutex_ in meter_reader_tflite.*
+// #include <numeric> // for std::accumulate
+
 #define DEBUG_DURATION  ///< Enable duration debugging macros
 
 namespace esphome {
@@ -117,6 +120,9 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   sensor::Sensor *confidence_sensor_{nullptr};  ///< Sensor for confidence values
   uint32_t frames_processed_{0};                ///< Counter for successfully processed frames
   uint32_t frames_skipped_{0};                  ///< Counter for skipped frames
+#ifdef DEBUG_METER_READER_TFLITE  
+  std::shared_ptr<camera::CameraImage> debug_image_;
+#endif
   
   /**
    * @brief Allocate tensor arena memory for TFLite model.
