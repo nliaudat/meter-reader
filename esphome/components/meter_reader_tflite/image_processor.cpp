@@ -683,140 +683,6 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
       zone);
 }
 
-/**
- * @brief Processes a single crop zone from the image.
- */
-/* ImageProcessor::ProcessResult ImageProcessor::process_zone(
-    std::shared_ptr<camera::CameraImage> image,
-    const CropZone &zone) {
-  
-  ProcessResult result{nullptr, 0};
-  
-  if (!validate_zone(zone)) {
-    ESP_LOGE(TAG, "Invalid zone [%d,%d,%d,%d]", zone.x1, zone.y1, zone.x2, zone.y2);
-    return result;
-  }
-
-  // Handle JPEG pixel format using esp_new_jpeg library
-  if (config_.pixel_format == "JPEG") {
-    ESP_LOGD(TAG, "Decoding JPEG for zone [%d,%d,%d,%d]", zone.x1, zone.y1, zone.x2, zone.y2);
-    const uint8_t *jpeg_data = image->get_data_buffer();
-    size_t jpeg_size = image->get_data_length();
-    
-    if (!validate_input_image(image)) {
-      ESP_LOGE(TAG, "Invalid JPEG data");
-      return result;
-    }
-
-    // Adjust zone to meet JPEG decoder requirements (multiples of 8)
-    CropZone adjusted_zone = adjust_zone_for_jpeg(zone, config_.camera_width, config_.camera_height);
-    
-    // Get model input dimensions
-    const int model_width = model_handler_->get_input_width();
-    const int model_height = model_handler_->get_input_height();
-    
-    // Configure JPEG decoder with cropping and scaling
-    jpeg_dec_config_t config = DEFAULT_JPEG_DEC_CONFIG();
-    config.output_type = JPEG_PIXEL_FORMAT_RGB888;
-    config.scale.width = static_cast<uint16_t>(model_width);
-    config.scale.height = static_cast<uint16_t>(model_height);
-    config.clipper.width = static_cast<uint16_t>(adjusted_zone.x2 - adjusted_zone.x1);
-    config.clipper.height = static_cast<uint16_t>(adjusted_zone.y2 - adjusted_zone.y1);
-    config.rotate = JPEG_ROTATE_0D;
-    config.block_enable = false;
-
-    jpeg_dec_handle_t decoder = nullptr;
-    jpeg_error_t ret = jpeg_dec_open(&config, &decoder);
-    
-    if (ret != JPEG_ERR_OK) {
-        ESP_LOGE(TAG, "Failed to open JPEG decoder: %s", jpeg_error_to_string(ret));
-        stats_.jpeg_decoding_errors++;
-        return result;
-    }
-
-    jpeg_dec_io_t io;
-    memset(&io, 0, sizeof(io));
-    io.inbuf = const_cast<uint8_t*>(jpeg_data);
-    io.inbuf_len = jpeg_size;
-    io.inbuf_remain = jpeg_size;
-    io.outbuf = nullptr;
-    io.out_size = 0;
-
-    jpeg_dec_header_info_t header_info;
-    ret = jpeg_dec_parse_header(decoder, &io, &header_info);
-    if (ret != JPEG_ERR_OK) {
-        ESP_LOGE(TAG, "Failed to parse JPEG header: %s", jpeg_error_to_string(ret));
-        jpeg_dec_close(decoder);
-        stats_.jpeg_decoding_errors++;
-        return result;
-    }
-
-    int outbuf_len = 0;
-    ret = jpeg_dec_get_outbuf_len(decoder, &outbuf_len);
-    if (ret != JPEG_ERR_OK) {
-        ESP_LOGE(TAG, "Failed to get output buffer size: %s", jpeg_error_to_string(ret));
-        jpeg_dec_close(decoder);
-        stats_.jpeg_decoding_errors++;
-        return result;
-    }
-
-    // Verify output size matches expected model input
-    const size_t expected_size = model_width * model_height * 3; // RGB888
-    if (outbuf_len != expected_size) {
-        ESP_LOGE(TAG, "Output buffer size mismatch: expected %zu, got %d", expected_size, outbuf_len);
-        jpeg_dec_close(decoder);
-        return result;
-    }
-
-    // Allocate aligned buffer for the decoded image
-    uint8_t *decoded_buf = (uint8_t*)jpeg_calloc_align(outbuf_len, 16);
-    if (!decoded_buf) {
-        ESP_LOGE(TAG, "Failed to allocate output buffer");
-        jpeg_dec_close(decoder);
-        stats_.memory_allocation_errors++;
-        return result;
-    }
-
-    // RAII-style cleanup function
-    auto cleanup = [&]() {
-        jpeg_free_align(decoded_buf);
-        jpeg_dec_close(decoder);
-    };
-
-    io.outbuf = decoded_buf;
-    io.out_size = outbuf_len;
-
-    ret = jpeg_dec_process(decoder, &io);
-    
-    if (ret != JPEG_ERR_OK) {
-        ESP_LOGE(TAG, "JPEG decoding failed: %s", jpeg_error_to_string(ret));
-        cleanup();
-        stats_.jpeg_decoding_errors++;
-        return result;
-    }
-
-    cleanup();
-
-    // Create a custom deleter for the buffer
-    auto final_deleter = [](uint8_t* p) {
-        if (p) jpeg_free_align(p);
-    };
-    
-    std::unique_ptr<uint8_t[], decltype(final_deleter)> final_buffer(decoded_buf, final_deleter);
-    
-    return ProcessResult(
-        std::unique_ptr<TrackedBuffer>(
-            new TrackedBuffer(final_buffer.release(), false, true)), // jpeg_aligned = true
-        outbuf_len);
-  }
-
-  // For non-JPEG formats
-  return scale_cropped_region(
-      image->get_data_buffer(),
-      config_.camera_width,
-      config_.camera_height,
-      zone);
-} */
 
 /**
  * @brief Scales a cropped region of an image to the model's input dimensions.
@@ -944,6 +810,12 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
  * @brief Validates if a given crop zone is within the camera's dimensions.
  */
 bool ImageProcessor::validate_zone(const CropZone &zone) const {
+  // Check if camera dimensions are valid
+  if (config_.camera_width <= 0 || config_.camera_height <= 0) {
+    ESP_LOGE(TAG, "Invalid camera dimensions: %dx%d", config_.camera_width, config_.camera_height);
+    return false;
+  }
+  
   if (zone.x1 < 0 || zone.y1 < 0 || 
       zone.x2 > config_.camera_width || zone.y2 > config_.camera_height ||
       zone.x1 >= zone.x2 || zone.y1 >= zone.y2) {
@@ -967,37 +839,6 @@ bool ImageProcessor::validate_zone(const CropZone &zone) const {
   return true;
 }
 
-/**
- * @brief Scale RGB888 image to model dimensions using fixed-point arithmetic
- * @param src_data Source RGB888 image data
- * @param src_width Source image width
- * @param src_height Source image height
- * @param dst_data Destination buffer for scaled image
- * @param dst_width Destination width
- * @param dst_height Destination height
- */
-void ImageProcessor::scale_rgb888_image(const uint8_t* src_data, int src_width, int src_height,
-                       uint8_t* dst_data, int dst_width, int dst_height) {
-    // Calculate fixed-point scaling factors (16.16 format)
-    const uint32_t x_scale = (static_cast<uint32_t>(src_width) << 16) / dst_width;
-    const uint32_t y_scale = (static_cast<uint32_t>(src_height) << 16) / dst_height;
-
-    for (int y = 0; y < dst_height; y++) {
-        const int src_y = (y * y_scale) >> 16;
-        const size_t src_row_offset = src_y * src_width * 3; // RGB888 = 3 bytes per pixel
-        
-        for (int x = 0; x < dst_width; x++) {
-            const int src_x = (x * x_scale) >> 16;
-            const size_t src_pixel_offset = src_row_offset + src_x * 3;
-            const size_t dst_pixel_offset = (y * dst_width + x) * 3;
-
-            // Copy RGB values
-            dst_data[dst_pixel_offset] = src_data[src_pixel_offset];     // R
-            dst_data[dst_pixel_offset + 1] = src_data[src_pixel_offset + 1]; // G
-            dst_data[dst_pixel_offset + 2] = src_data[src_pixel_offset + 2]; // B
-        }
-    }
-}
 
 
 

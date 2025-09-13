@@ -2,9 +2,7 @@
 #include "esp_log.h"
 #include "debug_utils.h"
 #include <cmath>
-
-
-
+#include <vector>
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -143,59 +141,85 @@ bool ModelHandler::validate_model_config() {
 }
 
 
-float ModelHandler::process_output(const float* output_data) const {
-  if (config_.output_processing == "direct_class") {
-    // Find max probability (simple argmax)
-    int max_idx = 0;
-    float max_val = output_data[0];
-    for (int i = 1; i < 10; i++) {
-      if (output_data[i] > max_val) {
-        max_val = output_data[i];
-        max_idx = i;
-      }
+ProcessedOutput ModelHandler::process_output(const float* output_data) const {
+  const int num_classes = output_size_;
+  ProcessedOutput result = {0.0f, 0.0f};
+  
+  if (num_classes <= 0) {
+    ESP_LOGE(TAG, "Invalid number of output classes: %d", num_classes);
+    return result;
+  }
+
+  // First find the max probability and its index for confidence
+  int max_idx = 0;
+  float max_val = output_data[0];
+  for (int i = 1; i < num_classes; i++) {
+    if (output_data[i] > max_val) {
+      max_val = output_data[i];
+      max_idx = i;
     }
-    return static_cast<float>(max_idx);
+  }
+
+  // Store confidence (max probability)
+  result.confidence = max_val;
+
+  // Calculate the actual value based on output processing method
+  if (config_.output_processing == "direct_class") {
+    result.value = static_cast<float>(max_idx);
+    ESP_LOGD(TAG, "Direct class - Value: %.1f, Confidence: %.6f", result.value, result.confidence);
   }
   else if (config_.output_processing == "softmax") {
-    // Softmax without scaling
+    // Calculate softmax probabilities
     float sum = 0.0f;
-    float exp_values[10];
-    for (int i = 0; i < 10; i++) {
+    std::vector<float> exp_values(num_classes);
+    
+    for (int i = 0; i < num_classes; i++) {
       exp_values[i] = expf(output_data[i]);
       sum += exp_values[i];
     }
     
-    int max_idx = 0;
-    float max_val = 0.0f;
-    for (int i = 0; i < 10; i++) {
+    // Find the class with highest probability after softmax
+    int softmax_max_idx = 0;
+    float softmax_max_val = 0.0f;
+    for (int i = 0; i < num_classes; i++) {
       float prob = exp_values[i] / sum;
-      if (prob > max_val) {
-        max_val = prob;
-        max_idx = i;
+      if (prob > softmax_max_val) {
+        softmax_max_val = prob;
+        softmax_max_idx = i;
       }
     }
-    return static_cast<float>(max_idx);
+    
+    result.value = static_cast<float>(softmax_max_idx);
+    result.confidence = softmax_max_val; // Use softmax probability for confidence
+    ESP_LOGD(TAG, "Softmax - Value: %.1f, Confidence: %.6f", result.value, result.confidence);
   }
   else { // "softmax_scale10"
-    // Original implementation with 10x scaling
+    // Calculate softmax probabilities
     float sum = 0.0f;
-    float exp_values[10];
-    for (int i = 0; i < 10; i++) {
+    std::vector<float> exp_values(num_classes);
+    
+    for (int i = 0; i < num_classes; i++) {
       exp_values[i] = expf(output_data[i]);
       sum += exp_values[i];
     }
     
-    int max_idx = 0;
-    float max_val = 0.0f;
-    for (int i = 0; i < 10; i++) {
+    // Find the class with highest probability after softmax
+    int softmax_max_idx = 0;
+    float softmax_max_val = 0.0f;
+    for (int i = 0; i < num_classes; i++) {
       float prob = exp_values[i] / sum;
-      if (prob > max_val) {
-        max_val = prob;
-        max_idx = i;
+      if (prob > softmax_max_val) {
+        softmax_max_val = prob;
+        softmax_max_idx = i;
       }
     }
-    return static_cast<float>(max_idx) / config_.scale_factor;
+    
+    result.value = static_cast<float>(softmax_max_idx) / config_.scale_factor;
+    result.confidence = softmax_max_val; // Use softmax probability for confidence
+    ESP_LOGD(TAG, "Softmax scale10 - Value: %.1f, Confidence: %.6f", result.value, result.confidence);
   }
+
+  return result;
 }
 
 
@@ -210,18 +234,10 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
     TfLiteTensor* input = input_tensor();
     
     // Validate input size
-    // if (input_size != input->bytes) {
-        // ESP_LOGE(TAG, "Input size mismatch! Model needs %d, got %zu", 
-                // input->bytes, input_size);
-        // return false;
-    // }
-
-
-	  // Validate input size
-	  if (input_size != input->bytes) {
-		ESP_LOGE(TAG, "Input size mismatch! Expected %d, got %zu", input->bytes, input_size);
-		return false;
-	  }
+    if (input_size != input->bytes) {
+        ESP_LOGE(TAG, "Input size mismatch! Expected %d, got %zu", input->bytes, input_size);
+        return false;
+    }
   
     // Handle different input types
     if (input->type == kTfLiteUInt8) {
@@ -290,6 +306,17 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
     }
 
     output_size_ = output->dims->data[1];
+    
+    ESP_LOGD(TAG, "Raw output values (%d classes):", output_size_);
+    for (int i = 0; i < output_size_ && i < 15; i++) {
+        ESP_LOGD(TAG, "  Output[%d]: %.6f", i, model_output_[i]);
+    }
+    
+    // Process the output to get both value and confidence
+    processed_output_ = process_output(model_output_);
+    ESP_LOGD(TAG, "Processed output - Value: %.1f, Confidence: %.6f", 
+             processed_output_.value, processed_output_.confidence);
+    
     DURATION_END("ModelHandler::invoke_model");
     return true;
 }

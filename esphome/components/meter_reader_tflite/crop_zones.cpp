@@ -127,5 +127,24 @@ void CropZoneHandler::set_default_zone(int width, int height) {
     ESP_LOGI(TAG, "Set default crop zone: [%d,%d,%d,%d]", 
              zones_[0].x1, zones_[0].y1, zones_[0].x2, zones_[0].y2);
 }
+
+
+void CropZoneHandler::set_debug_zones() {
+    zones_.clear();
+    // Static crop zones for debug image
+    zones_ = {
+        {80, 233, 116, 307},   // Digit 1
+        {144, 235, 180, 307},  // Digit 2
+        {202, 234, 238, 308},  // Digit 3
+        {265, 233, 304, 306},  // Digit 4
+        {328, 232, 367, 311},  // Digit 5
+        {393, 231, 433, 310},  // Digit 6
+        {460, 235, 499, 311},  // Digit 7
+        {520, 235, 559, 342}   // Digit 8
+    };
+    ESP_LOGI(TAG, "Set debug crop zones (8 zones)");
+}
+
+
 }  // namespace meter_reader_tflite
 }  // namespace esphome

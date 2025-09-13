@@ -153,10 +153,13 @@ async def to_code(config):
     # cg.add_global(cg.RawStatement(template))
 
     if config.get(CONF_DEBUG_IMAGE, False):
-        cg.add_define("DEBUG_METER_READER_TFLITE") #"DEBUG_IMAGE_METER_READER_TFLITE")
+        cg.add_define("DEBUG_METER_READER_TFLITE")
         cg.add(var.set_debug_mode(True))
-               
-        # Load debug image
+        
+        # Set camera format first
+        cg.add(var.set_camera_image_format(640, 480, "JPEG"))
+        
+        # Load debug image and set it
         component_dir = os.path.dirname(os.path.abspath(__file__))
         debug_image_path = os.path.join(component_dir, "debug.jpg")
         
@@ -166,11 +169,11 @@ async def to_code(config):
             with open(debug_image_path, "rb") as f:
                 debug_image_data = f.read()
         
-        # Create debug image array
         debug_image_id = f"{config[CONF_ID]}_debug_image"
         cg.add_global(
             cg.RawStatement(
-               f"static const uint8_t {debug_image_id}[] = {{{', '.join(f'0x{x:02x}' for x in debug_image_data)}}};"            )
+               f"static const uint8_t {debug_image_id}[] = {{{', '.join(f'0x{x:02x}' for x in debug_image_data)}}};"
+            )
         )
         
         cg.add(
@@ -180,10 +183,8 @@ async def to_code(config):
             )
         )
         
-        cg.add(var.set_camera_image_format(640, 480, "JPEG"))
-        
         # Process debug image immediately
-        cg.add(var.test_with_debug_image())
+        # cg.add(var.test_with_debug_image())
         
     if config.get(CONF_DEBUG, False):
         cg.add_define("DEBUG_METER_READER_TFLITE")
