@@ -120,20 +120,20 @@ class ImageProcessor {
         TrackedBuffer(uint8_t* ptr, bool is_spiram, bool is_jpeg_aligned = false) 
             : ptr_(ptr), is_spiram_(is_spiram), is_jpeg_aligned_(is_jpeg_aligned) {}
         
-		/**
-		 * @brief Destructor that frees memory appropriately.
-		 */
-		~TrackedBuffer() {
-			if (ptr_) {
-				if (is_jpeg_aligned_) {
-					jpeg_free_align(ptr_);
-				} else if (is_spiram_) {
-					heap_caps_free(ptr_);
-				} else {
-					delete[] ptr_;
-				}
-			}
-		}
+        /**
+         * @brief Destructor that frees memory appropriately.
+         */
+        ~TrackedBuffer() {
+            if (ptr_) {
+                if (is_jpeg_aligned_) {
+                    jpeg_free_align(ptr_);
+                } else if (is_spiram_) {
+                    heap_caps_free(ptr_);
+                } else {
+                    delete[] ptr_;
+                }
+            }
+        }
         
         uint8_t* get() { return ptr_; }                   ///< Get raw pointer
         const uint8_t* get() const { return ptr_; }       ///< Get const raw pointer
@@ -279,9 +279,9 @@ class ImageProcessor {
     ESP_LOGE(TAG, "Failed to allocate %zu bytes", size);
     return nullptr;
 }
-	
-						   
-	bool process_raw_zone_to_buffer_from_rgb(
+    
+                           
+    bool process_raw_zone_to_buffer_from_rgb(
         const uint8_t* rgb_data,
         int src_width,
         int src_height,
