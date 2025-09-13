@@ -233,34 +233,12 @@ bool MeterReaderTFLite::process_model_result(const ImageProcessor::ProcessResult
         return false;
     }
 
-    // Get model output
-    const float* output = model_handler_.get_output();
-    if (!output) {
-        ESP_LOGE(TAG, "Failed to get model output");
-        return false;
-    }
+    // Get both value and confidence from the model handler
+    ProcessedOutput output = model_handler_.get_processed_output();
+    *value = output.value;
+    *confidence = output.confidence;
 
-    // Find highest probability class
-    float max_prob = 0.0f;
-    int predicted_class = 0;
-    const int num_classes = model_handler_.get_output_size();
-    
-    for (int i = 0; i < num_classes; i++) {
-        if (output[i] > max_prob) {
-            max_prob = output[i];
-            predicted_class = i;
-        }
-    }
-
-    // Handle digit '0' (class 10 represents 0)
-    if (predicted_class == 10) {
-        predicted_class = 0;
-    }
-
-    *value = static_cast<float>(predicted_class);
-    *confidence = max_prob;
-
-    ESP_LOGD(TAG, "Model output - Class: %d, Confidence: %.2f", predicted_class, max_prob);
+    ESP_LOGD(TAG, "Model result - Value: %.1f, Confidence: %.6f", *value, *confidence);
     return true;
 }
 

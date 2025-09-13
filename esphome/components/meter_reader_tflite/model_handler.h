@@ -21,6 +21,12 @@ struct ModelConfig {
   bool invert = false;
 };
 
+
+struct ProcessedOutput {
+  float value;
+  float confidence;
+};
+
 constexpr size_t MAX_OPERATORS = 30;
 
 class ModelHandler {
@@ -29,8 +35,7 @@ class ModelHandler {
                 uint8_t* tensor_arena, size_t tensor_arena_size,
                 const ModelConfig &config);
                 
-  // bool invoke_model(const uint8_t *input_data, size_t input_size, 
-                  // float* output_value, float* output_confidence);
+
   bool invoke_model(const uint8_t* input_data, size_t input_size);
   const float* get_output() const { return model_output_; }
   int get_output_size() const { return output_size_; }
@@ -39,6 +44,8 @@ class ModelHandler {
   
   TfLiteTensor* input_tensor() const;
   TfLiteTensor* output_tensor() const;
+  
+  ProcessedOutput get_processed_output() const { return processed_output_; } 
   
   int get_input_width() const {
     if (!interpreter_ || !input_tensor()) return 0;
@@ -83,12 +90,14 @@ class ModelHandler {
 
 
  protected:
-  float process_output(const float* output_data) const;
+  ProcessedOutput process_output(const float* output_data) const;
   bool validate_model_config();
 
   const tflite::Model* tflite_model_{nullptr};
   std::unique_ptr<tflite::MicroInterpreter> interpreter_;
   ModelConfig config_;
+  
+  ProcessedOutput processed_output_ = {0.0f, 0.0f};
   
   
 private:
