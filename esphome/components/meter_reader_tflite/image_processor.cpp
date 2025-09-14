@@ -180,6 +180,8 @@ ImageProcessor::ImageProcessor(const ImageProcessorConfig &config,
            model_handler_->get_input_width(),
            model_handler_->get_input_height(),
            model_handler_->get_input_channels());
+  ESP_LOGD(TAG, "  Normalize: %s", model_handler_->get_config().normalize ? "true" : "false");
+  ESP_LOGD(TAG, "  Input order: %s", model_handler_->get_config().input_order.c_str());
 }
 
 /**
@@ -451,25 +453,84 @@ bool ImageProcessor::process_raw_zone_to_buffer_from_rgb(
         ESP_LOGE(TAG, "Cannot determine model input type - input tensor is null");
         return false;
     }
+	
+	if (input_tensor->dims->size != 4) {
+		ESP_LOGE(TAG, "Model expects 4D input (with batch dimension), got %dD", input_tensor->dims->size);
+		return false;
+	}
 
-    TfLiteType input_type = input_tensor->type;
-    size_t required_size = 0;
+	// Verify the batch dimension is 1
+	if (input_tensor->dims->data[0] != 1) {
+		ESP_LOGW(TAG, "Model batch dimension is %d, expected 1", input_tensor->dims->data[0]);
+	}
+	
+	ESP_LOGD(TAG, "Model input tensor shape: [%d, %d, %d, %d]",
+         input_tensor->dims->data[0],  // batch
+         input_tensor->dims->data[1],  // height
+         input_tensor->dims->data[2],  // width
+         input_tensor->dims->data[3]); // channels
 
-    if (input_type == kTfLiteFloat32) {
-        required_size = model_width * model_height * model_channels * sizeof(float);
-        ESP_LOGD(TAG, "Model expects float32 input (%zu bytes)", required_size);
-    } else if (input_type == kTfLiteUInt8) {
-        required_size = model_width * model_height * model_channels;
-        ESP_LOGD(TAG, "Model expects uint8 input (%zu bytes)", required_size);
-    } else {
-        ESP_LOGE(TAG, "Unsupported model input type: %d", input_type);
-        return false;
-    }
+	ESP_LOGD(TAG, "Output buffer organized as: [1][%d][%d][%d]",
+         model_height, model_width, model_channels);
+		 
 
-    if (!validate_buffer_size(required_size, output_buffer_size, "model input processing")) {
-        ESP_LOGE(TAG, "Output buffer too small: need %zu bytes, got %zu", required_size, output_buffer_size);
-        return false;
-    }
+
+	TfLiteType input_type = input_tensor->type;
+
+	// Validate input tensor dimensions
+	if (input_tensor->dims->size != 4 && input_tensor->dims->size != 3) {
+		ESP_LOGE(TAG, "Unsupported input tensor dimension: %d (expected 3 or 4)", input_tensor->dims->size);
+		return false;
+	}
+
+	// Calculate required buffer size based on tensor shape and data type
+	size_t required_size = 0;
+
+	if (input_tensor->dims->size == 4) {
+		// Standard case: [batch, height, width, channels]
+		int batch_size = input_tensor->dims->data[0];
+		int height = input_tensor->dims->data[1];
+		int width = input_tensor->dims->data[2];
+		int channels = input_tensor->dims->data[3];
+		
+		ESP_LOGD(TAG, "Model expects 4D input: [%d, %d, %d, %d]", 
+				 batch_size, height, width, channels);
+		
+		if (batch_size != 1) {
+			ESP_LOGW(TAG, "Model batch size is %d, but only batch_size=1 is supported", batch_size);
+		}
+		
+		required_size = height * width * channels * 
+					   (input_type == kTfLiteFloat32 ? sizeof(float) : 1);
+		
+	} else if (input_tensor->dims->size == 3) {
+		// Some models might expect [height, width, channels] without batch
+		int height = input_tensor->dims->data[0];
+		int width = input_tensor->dims->data[1];
+		int channels = input_tensor->dims->data[2];
+		
+		ESP_LOGW(TAG, "Model expects 3D input (no batch dimension): [%d, %d, %d]", 
+				 height, width, channels);
+		
+		required_size = height * width * channels * 
+					   (input_type == kTfLiteFloat32 ? sizeof(float) : 1);
+	}
+
+	// Log data type information
+	if (input_type == kTfLiteFloat32) {
+		ESP_LOGD(TAG, "Model expects float32 input (%zu bytes)", required_size);
+	} else if (input_type == kTfLiteUInt8) {
+		ESP_LOGD(TAG, "Model expects uint8 input (%zu bytes)", required_size);
+	} else {
+		ESP_LOGE(TAG, "Unsupported model input type: %d", input_type);
+		return false;
+	}
+
+	// Validate buffer size
+	if (!validate_buffer_size(required_size, output_buffer_size, "model input processing")) {
+		ESP_LOGE(TAG, "Output buffer too small: need %zu bytes, got %zu", required_size, output_buffer_size);
+		return false;
+	}
 
     // -------------------------------------------------------------------------
     // 2. Validate crop zone
@@ -499,10 +560,15 @@ bool ImageProcessor::process_raw_zone_to_buffer_from_rgb(
     ESP_LOGD(TAG, "Scaling factors: width=%.3f height=%.3f",
              (double)width_scale / 65536.0, (double)height_scale / 65536.0);
 
-    const ModelConfig& config = model_handler_->get_config();
+    
+	// Get model configuration
+	const ModelConfig& config = model_handler_->get_config();
     bool normalize = config.normalize;
+	std::string input_order = config.input_order; // "BGR" or "RGB"
 
     ESP_LOGD(TAG, "Normalization enabled: %s", normalize ? "true" : "false");
+	ESP_LOGD(TAG, "Input order: %s", input_order.c_str());
+    
 
     // -------------------------------------------------------------------------
     // 4. Process pixels into output buffer
@@ -516,24 +582,35 @@ bool ImageProcessor::process_raw_zone_to_buffer_from_rgb(
             const int src_y = zone.y1 + ((y * height_scale) >> 16);
             const size_t src_row_offset = src_y * src_width * 3;
 
-            if (y < 3) {
-                ESP_LOGD(TAG, "Row %d → src_y=%d (row_offset=%zu)", y, src_y, src_row_offset);
-            }
-
             for (int x = 0; x < model_width; x++) {
                 const int src_x = zone.x1 + ((x * width_scale) >> 16);
                 const size_t src_pixel_offset = src_row_offset + src_x * 3;
                 const size_t dst_pixel_offset = (y * model_width + x) * model_channels;
 
-                // Convert first 3 channels from RGB
+                // Handle channel order (BGR vs RGB)
+                if (input_order == "BGR") {
+                    // BGR order: Blue, Green, Red
+                    for (int c = 0; c < model_channels && c < 3; c++) {
+                        uint8_t pixel_value = rgb_data[src_pixel_offset + (2 - c)]; // Reverse order
+                        float val = normalize 
+                            ? static_cast<float>(pixel_value) / 255.0f
+                            : static_cast<float>(pixel_value);
+                        float_output[dst_pixel_offset + c] = val;
+                    }
+                } else {
+                    // RGB order (default): Red, Green, Blue
+                    for (int c = 0; c < model_channels && c < 3; c++) {
+                        uint8_t pixel_value = rgb_data[src_pixel_offset + c];
+                        float val = normalize 
+                            ? static_cast<float>(pixel_value) / 255.0f
+                            : static_cast<float>(pixel_value);
+                        float_output[dst_pixel_offset + c] = val;
+                    }
+                }
+
+                // Update statistics
                 for (int c = 0; c < model_channels && c < 3; c++) {
-                    uint8_t pixel_value = rgb_data[src_pixel_offset + c];
-                    float val = normalize 
-                        ? static_cast<float>(pixel_value) / 255.0f
-                        : static_cast<float>(pixel_value);
-
-                    float_output[dst_pixel_offset + c] = val;
-
+                    float val = float_output[dst_pixel_offset + c];
                     if (val < min_val) min_val = val;
                     if (val > max_val) max_val = val;
                     sum_val += val;
@@ -544,9 +621,10 @@ bool ImageProcessor::process_raw_zone_to_buffer_from_rgb(
                     float_output[dst_pixel_offset + c] = 0.0f;
                 }
 
+                // Debug logging for first few pixels
                 if (y == 0 && x < 3) {
-                    ESP_LOGD(TAG, "Pixel[%d,%d] src=(%d,%d) → val=(%.4f,%.4f,%.4f...)", 
-                             x, y, src_x, src_y, 
+                    ESP_LOGD(TAG, "Pixel[%d,%d] src=(%d,%d) order=%s → val=(%.4f,%.4f,%.4f...)", 
+                             x, y, src_x, src_y, input_order.c_str(),
                              float_output[dst_pixel_offset], 
                              float_output[dst_pixel_offset+1], 
                              float_output[dst_pixel_offset+2]);
@@ -554,13 +632,9 @@ bool ImageProcessor::process_raw_zone_to_buffer_from_rgb(
             }
         }
 
-        ESP_LOGD(TAG, "First 5 float32 values:");
-        for (int i = 0; i < 5 && i < required_size / sizeof(float); i++) {
-            ESP_LOGD(TAG, "  [%d]: %.4f", i, float_output[i]);
-        }
-
-        ESP_LOGI(TAG, "Float32 summary: min=%.4f max=%.4f avg=%.4f (count=%zu)", 
-                 min_val, max_val, sum_val / count, count);
+        ESP_LOGI(TAG, "Float32 %s %s: min=%.4f max=%.4f avg=%.4f", 
+                 input_order.c_str(), normalize ? "normalized" : "raw",
+                 min_val, max_val, sum_val / count);
 
     } else if (input_type == kTfLiteUInt8) {
         uint8_t min_val = 255, max_val = 0;
@@ -571,23 +645,30 @@ bool ImageProcessor::process_raw_zone_to_buffer_from_rgb(
             const int src_y = zone.y1 + ((y * height_scale) >> 16);
             const size_t src_row_offset = src_y * src_width * 3;
 
-            if (y < 3) {
-                ESP_LOGD(TAG, "Row %d → src_y=%d (row_offset=%zu)", y, src_y, src_row_offset);
-            }
-
             for (int x = 0; x < model_width; x++) {
                 const int src_x = zone.x1 + ((x * width_scale) >> 16);
                 const size_t src_pixel_offset = src_row_offset + src_x * 3;
                 const size_t dst_pixel_offset = (y * model_width + x) * model_channels;
 
-                // Copy first 3 channels
-                for (int c = 0; c < model_channels && c < 3; c++) {
-                    uint8_t val = rgb_data[src_pixel_offset + c];
-                    output_buffer[dst_pixel_offset + c] = val;
-
-                    if (val < min_val) min_val = val;
-                    if (val > max_val) max_val = val;
-                    sum_val += val;
+                // Handle channel order (BGR vs RGB)
+                if (input_order == "BGR") {
+                    // BGR order: Blue, Green, Red
+                    for (int c = 0; c < model_channels && c < 3; c++) {
+                        uint8_t val = rgb_data[src_pixel_offset + (2 - c)]; // Reverse order
+                        output_buffer[dst_pixel_offset + c] = val;
+                        if (val < min_val) min_val = val;
+                        if (val > max_val) max_val = val;
+                        sum_val += val;
+                    }
+                } else {
+                    // RGB order (default): Red, Green, Blue
+                    for (int c = 0; c < model_channels && c < 3; c++) {
+                        uint8_t val = rgb_data[src_pixel_offset + c];
+                        output_buffer[dst_pixel_offset + c] = val;
+                        if (val < min_val) min_val = val;
+                        if (val > max_val) max_val = val;
+                        sum_val += val;
+                    }
                 }
 
                 // Pad extra channels with zeros
@@ -595,9 +676,10 @@ bool ImageProcessor::process_raw_zone_to_buffer_from_rgb(
                     output_buffer[dst_pixel_offset + c] = 0;
                 }
 
+                // Debug logging for first few pixels
                 if (y == 0 && x < 3) {
-                    ESP_LOGD(TAG, "Pixel[%d,%d] src=(%d,%d) → val=(%u,%u,%u...)", 
-                             x, y, src_x, src_y, 
+                    ESP_LOGD(TAG, "Pixel[%d,%d] src=(%d,%d) order=%s → val=(%u,%u,%u...)", 
+                             x, y, src_x, src_y, input_order.c_str(),
                              output_buffer[dst_pixel_offset], 
                              output_buffer[dst_pixel_offset+1], 
                              output_buffer[dst_pixel_offset+2]);
@@ -605,13 +687,8 @@ bool ImageProcessor::process_raw_zone_to_buffer_from_rgb(
             }
         }
 
-        ESP_LOGD(TAG, "First 5 uint8 values:");
-        for (int i = 0; i < 5 && i < required_size; i++) {
-            ESP_LOGD(TAG, "  [%d]: %u", i, output_buffer[i]);
-        }
-
-        ESP_LOGI(TAG, "UInt8 summary: min=%u max=%u avg=%.2f (count=%zu)", 
-                 min_val, max_val, (double)sum_val / count, count);
+        ESP_LOGI(TAG, "UInt8 %s: min=%u max=%u avg=%.2f", 
+                 input_order.c_str(), min_val, max_val, (double)sum_val / count);
     }
 
     // -------------------------------------------------------------------------
@@ -797,13 +874,13 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
     // Get model configuration
     const ModelConfig& config = model_handler_->get_config();
     bool normalize = config.normalize;
+	std::string input_order = config.input_order; // "BGR" or "RGB"
 
     // Calculate fixed-point scaling factors (16.16 format) for precise scaling.
     const uint32_t width_scale = ((zone.x2 - zone.x1) << 16) / model_width;
     const uint32_t height_scale = ((zone.y2 - zone.y1) << 16) / model_height;
 
     if (input_type == kTfLiteFloat32) {
-        // Convert to float32
         float* dst = reinterpret_cast<float*>(buffer->get());
         
         for (int y = 0; y < model_height; y++) {
@@ -826,9 +903,16 @@ ImageProcessor::ProcessResult ImageProcessor::scale_cropped_region(
                         dst[dst_pixel_offset+1] = static_cast<float>(val);
                         dst[dst_pixel_offset+2] = static_cast<float>(val);
                     }
-                } else { // RGB
+                } else { // RGB/BGR
                     for (int c = 0; c < model_channels; c++) {
-                        uint8_t pixel_value = src_data[src_pixel_offset + (c % bytes_per_pixel_)];
+                        int src_channel = c % bytes_per_pixel_;
+                        
+                        // Handle BGR order if specified
+                        if (input_order == "BGR" && bytes_per_pixel_ >= 3) {
+                            src_channel = 2 - src_channel; // Reverse order for BGR
+                        }
+                        
+                        uint8_t pixel_value = src_data[src_pixel_offset + src_channel];
                         if (normalize) {
                             dst[dst_pixel_offset + c] = static_cast<float>(pixel_value) / 255.0f;
                         } else {

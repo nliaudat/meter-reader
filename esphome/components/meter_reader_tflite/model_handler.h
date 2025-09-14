@@ -16,6 +16,7 @@ struct ModelConfig {
   float scale_factor;
   std::string input_type;
   int input_channels = 3;
+  std::string input_order; // "BGR" or "RGB"
   std::pair<int, int> input_size = {0, 0};
   bool normalize = false;
   bool invert = false;
@@ -47,23 +48,35 @@ class ModelHandler {
   
   ProcessedOutput get_processed_output() const { return processed_output_; } 
   
-  int get_input_width() const {
-    if (!interpreter_ || !input_tensor()) return 0;
-    if (input_tensor()->dims->size < 2) return 0;
-    return input_tensor()->dims->data[1];
-  }
+	int get_input_width() const {
+		if (!interpreter_ || !input_tensor()) return 0;
+		if (input_tensor()->dims->size == 4) {
+			return input_tensor()->dims->data[2];  // [batch, height, width, channels]
+		} else if (input_tensor()->dims->size == 3) {
+			return input_tensor()->dims->data[1];  // [height, width, channels]
+		}
+		return 0;
+	}
 
-  int get_input_height() const {
-    if (!interpreter_ || !input_tensor()) return 0;
-    if (input_tensor()->dims->size < 3) return 0;
-    return input_tensor()->dims->data[2];
-  }
+	int get_input_height() const {
+		if (!interpreter_ || !input_tensor()) return 0;
+		if (input_tensor()->dims->size == 4) {
+			return input_tensor()->dims->data[1];  // [batch, height, width, channels]
+		} else if (input_tensor()->dims->size == 3) {
+			return input_tensor()->dims->data[0];  // [height, width, channels]
+		}
+		return 0;
+	}
 
-  int get_input_channels() const {
-    if (!interpreter_ || !input_tensor()) return 0;
-    if (input_tensor()->dims->size < 4) return 0;
-    return input_tensor()->dims->data[3];
-  }
+	int get_input_channels() const {
+		if (!interpreter_ || !input_tensor()) return 0;
+		if (input_tensor()->dims->size == 4) {
+			return input_tensor()->dims->data[3];  // [batch, height, width, channels]
+		} else if (input_tensor()->dims->size == 3) {
+			return input_tensor()->dims->data[2];  // [height, width, channels]
+		}
+		return 0;
+	}
 
   const ModelConfig& get_config() const { return config_; }
   void set_config(const ModelConfig &config) { config_ = config; }
