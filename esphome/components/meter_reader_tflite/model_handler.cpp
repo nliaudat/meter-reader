@@ -77,6 +77,11 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
     return false;
   }
   
+  if (tflite_model_->subgraphs()->Get(0)->operators()->size() == 0) {
+        ESP_LOGE(TAG, "Model has no operators!");
+        return false;
+    }
+  
   auto* input = input_tensor();
   if (input) {
     ESP_LOGI(TAG, "Input tensor dimensions:");
@@ -283,24 +288,31 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         }
     } 
 	else if (input->type == kTfLiteFloat32) {
-		// Float model processing - convert uint8 [0,255] to float32
+		
 		float* dst = input->data.f;
 		if (config_.normalize) {
 			// Normalize to [0,1]
 			for (size_t i = 0; i < input_size; i++) {
 				dst[i] = static_cast<float>(input_data[i]) / 255.0f;
 			}
+			
+			ESP_LOGD(TAG, "First 5 float32 inputs (normalized):");
+			for (int i = 0; i < 5 && i < input_size; i++) {
+				ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
+			}
 		} else {
 			// Keep in [0,255] range (if model expects this)
 			for (size_t i = 0; i < input_size; i++) {
 				dst[i] = static_cast<float>(input_data[i]);
 			}
+			
+			ESP_LOGD(TAG, "First 5 float32 inputs (NOT normalized: [0-255 range]):");
+			for (int i = 0; i < 5 && i < input_size; i++) {
+				ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
+			}
 		}
 		
-		ESP_LOGD(TAG, "First 5 float32 inputs:");
-		for (int i = 0; i < 5 && i < input_size; i++) {
-			ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
-		}
+
 	}
     // Perform inference
     if (interpreter_->Invoke() != kTfLiteOk) {
