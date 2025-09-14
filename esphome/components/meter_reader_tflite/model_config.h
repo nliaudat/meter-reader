@@ -11,7 +11,7 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
     {"class100-0180", 
         ModelConfig{
             .description = "dig-class100-0180",
-            .output_processing = "softmax_scale10",
+            .output_processing = "softmax_scale10", //treat the raw outputs as logits and just find the maximum value
             .scale_factor = 10.0f,
             .input_type = "float32", //"uint8",  // Quantized models use uint8 "float32",
             .input_channels = 3,
