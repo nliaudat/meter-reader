@@ -204,10 +204,12 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     float sum = 0.0f;
     std::vector<float> exp_values(num_classes);
     
-    for (int i = 0; i < num_classes; i++) {
-        exp_values[i] = expf(output_data[i]);
-        sum += exp_values[i];
-    }
+	// Subtract max value for numerical stability
+    float max_val = *std::max_element(output_data, output_data + num_classes);
+        for (int i = 0; i < num_classes; i++) {
+            exp_values[i] = expf(output_data[i] - max_val);
+            sum += exp_values[i];
+        }
     
     // Find the class with highest probability after softmax
     int softmax_max_idx = 0;
@@ -312,6 +314,39 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
 			}
 		}
 		
+		
+		
+		        // Add detailed input statistics
+        ESP_LOGD(TAG, "Input tensor statistics (float32, 0-255 range):");
+        float sum = 0.0f;
+        float min_val = std::numeric_limits<float>::max();
+        float max_val = std::numeric_limits<float>::lowest();
+        int zero_count = 0;
+        int low_count = 0; // < 10
+        int high_count = 0; // > 245
+
+        for (int i = 0; i < std::min(50, (int)input_size); i++) {
+            float val = dst[i];
+            sum += val;
+            if (val < min_val) min_val = val;
+            if (val > max_val) max_val = val;
+            if (val == 0.0f) zero_count++;
+            if (val < 10.0f) low_count++;
+            if (val > 245.0f) high_count++;
+            
+            if (i < 10) {
+                ESP_LOGD(TAG, "  [%d]: %.1f", i, val);
+            }
+        }
+
+        float mean = sum / std::min(50, (int)input_size);
+        ESP_LOGD(TAG, "  Stats: min=%.1f, max=%.1f, mean=%.1f", min_val, max_val, mean);
+        ESP_LOGD(TAG, "  Counts: zeros=%d, low=%d, high=%d", zero_count, low_count, high_count);
+        
+        // Check for suspicious patterns that indicate channel order issues
+        if (zero_count > 30) {
+            ESP_LOGW(TAG, "Too many zero values - possible channel order issue");
+        }
 
 	}
     // Perform inference

@@ -218,12 +218,6 @@ class ImageProcessor {
         std::shared_ptr<camera::CameraImage> image,
         const CropZone &zone);
 
-    ProcessResult scale_cropped_region(
-        const uint8_t *src_data,
-        int src_width,
-        int src_height,
-        const CropZone &zone);
-
     bool process_jpeg_zone_to_buffer(
         std::shared_ptr<camera::CameraImage> image,
         const CropZone &zone,
@@ -241,54 +235,55 @@ class ImageProcessor {
     bool validate_buffer_size(size_t required, size_t available, const char* context) const;
     
     const char* jpeg_error_to_string(jpeg_error_t error) const;
+	
+    // RGB888 processing functions
+    bool process_rgb888_crop_and_scale_to_float32(
+        const uint8_t* input_data, const CropZone &zone,
+        int crop_width, int crop_height,
+        uint8_t* output_buffer, int model_width, int model_height, int model_channels,
+        bool normalize);
 
-   UniqueBufferPtr allocate_image_buffer(size_t size) {
-    uint8_t* buf = nullptr;
-    bool is_spiram = false;
-    bool is_jpeg_aligned = false;
-    
-    // For JPEG decoding, we need 16-byte aligned memory
-    if (config_.pixel_format == "JPEG") {
-        buf = (uint8_t*)jpeg_calloc_align(size, 16);
-        is_jpeg_aligned = (buf != nullptr);
-        if (buf) {
-            ESP_LOGD(TAG, "Allocated %zu bytes with jpeg_calloc_align (16-byte aligned)", size);
-        }
-    } else {
-        // Try SPIRAM first for non-JPEG formats
-        #ifdef CONFIG_SPIRAM
-        if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >= size) {
-            buf = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-            is_spiram = (buf != nullptr);
-        }
-        #endif
-        
-        // Fallback to internal RAM
-        if (!buf) {
-            buf = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
-        }
-    }
-    
-    if (buf) {
-        // Update peak memory usage
-        stats_.peak_memory_usage = std::max(stats_.peak_memory_usage, static_cast<uint32_t>(size));
-        return std::unique_ptr<TrackedBuffer>(new TrackedBuffer(buf, is_spiram, is_jpeg_aligned));
-    }
-    
-    stats_.memory_allocation_errors++;
-    ESP_LOGE(TAG, "Failed to allocate %zu bytes", size);
-    return nullptr;
-}
-    
-                           
-    bool process_raw_zone_to_buffer_from_rgb(
-        const uint8_t* rgb_data,
-        int src_width,
-        int src_height,
-        const CropZone &zone,
-        uint8_t* output_buffer,
-        size_t output_buffer_size);
+    bool process_rgb888_crop_and_scale_to_uint8(
+        const uint8_t* input_data, const CropZone &zone,
+        int crop_width, int crop_height,
+        uint8_t* output_buffer, int model_width, int model_height, int model_channels);
 
+    // RGB565 processing functions
+    bool process_rgb565_crop_and_scale_to_float32(
+        const uint8_t* input_data, const CropZone &zone,
+        int crop_width, int crop_height,
+        uint8_t* output_buffer, int model_width, int model_height, int model_channels,
+        bool normalize);
+
+    bool process_rgb565_crop_and_scale_to_uint8(
+        const uint8_t* input_data, const CropZone &zone,
+        int crop_width, int crop_height,
+        uint8_t* output_buffer, int model_width, int model_height, int model_channels);
+
+    // Grayscale processing functions
+    bool process_grayscale_crop_and_scale_to_float32(
+        const uint8_t* input_data, const CropZone &zone,
+        int crop_width, int crop_height,
+        uint8_t* output_buffer, int model_width, int model_height, int model_channels,
+        bool normalize);
+
+    bool process_grayscale_crop_and_scale_to_uint8(
+        const uint8_t* input_data, const CropZone &zone,
+        int crop_width, int crop_height,
+        uint8_t* output_buffer, int model_width, int model_height, int model_channels);
+
+    // Scaling functions
+    bool scale_rgb888_to_float32(
+        const uint8_t* input_data, int input_width, int input_height,
+        uint8_t* output_buffer, int output_width, int output_height, int output_channels,
+        bool normalize);
+
+    bool scale_rgb888_to_uint8(
+        const uint8_t* input_data, int input_width, int input_height,
+        uint8_t* output_buffer, int output_width, int output_height, int output_channels);
+
+    UniqueBufferPtr allocate_image_buffer(size_t size);
+    
     ImageProcessorConfig config_;  ///< Processor configuration
     ModelHandler* model_handler_;  ///< Model handler reference
     int bytes_per_pixel_;          ///< Bytes per pixel for current format
