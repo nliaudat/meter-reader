@@ -102,7 +102,7 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
     if (output->dims->size >= 2 && output->dims->data[1] == 100) {
       config_.output_processing = "logits_scale10";
       config_.scale_factor = 10.0f;
-      ESP_LOGW(TAG, "Auto-detected class100 model, using logits_scale10 processing");
+      ESP_LOGW(TAG, "Auto-detected class100 model, using softmax_scale10 processing");
     } else if (output->dims->size >= 2 && output->dims->data[1] == 10) {
       config_.output_processing = "softmax";
       config_.scale_factor = 1.0f;
@@ -504,6 +504,12 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         // Debug input pattern
         debug_input_pattern();
 	}
+	
+	ESP_LOGD("DEBUG", "First 10 input values:");
+	for (int i = 0; i < 10; i++) {
+		ESP_LOGD("DEBUG", "  [%d]: %f", i, input_data[i]);
+	}
+	
     // Perform inference
     if (interpreter_->Invoke() != kTfLiteOk) {
         ESP_LOGE(TAG, "Inference failed");
