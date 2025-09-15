@@ -101,6 +101,10 @@ class ModelHandler {
 				   output_tensor()->params.zero_point : 0;
 		}
 
+  void log_input_stats() const;
+  void debug_input_pattern() const;
+  void debug_model_architecture() const;
+
 
  protected:
   ProcessedOutput process_output(const float* output_data) const;

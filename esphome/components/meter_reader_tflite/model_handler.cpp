@@ -4,6 +4,7 @@
 #include <cmath>
 #include <vector>
 #include <algorithm>
+#include <limits>
 
 
 namespace esphome {
@@ -108,8 +109,12 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
       ESP_LOGW(TAG, "Auto-detected class10 model, using softmax processing");
     }
   }
+  
 
   ESP_LOGI(TAG, "Model loaded successfully");
+  
+  debug_model_architecture(); 
+  
   return true;
 }
 
@@ -140,6 +145,98 @@ bool ModelHandler::validate_model_config() {
     }
     
     return true;
+}
+
+void ModelHandler::log_input_stats() const {
+    TfLiteTensor* input = input_tensor();
+    if (input == nullptr) return;
+    
+    const int total_elements = get_input_width() * get_input_height() * get_input_channels();
+    const int sample_size = std::min(20, total_elements); // Show first 20 values
+    
+    ESP_LOGD(TAG, "First %d %s inputs (%s):", sample_size, 
+             input->type == kTfLiteFloat32 ? "float32" : "uint8",
+             config_.normalize ? "normalized" : "raw");
+    
+    if (input->type == kTfLiteFloat32) {
+        const float* data = input->data.f;
+        for (int i = 0; i < sample_size; i++) {
+            ESP_LOGD(TAG, "  [%d]: %.4f", i, data[i]);
+            // Log channel groups for RGB/BGR
+            if (config_.input_channels >= 3 && i % config_.input_channels == 2) {
+                ESP_LOGD(TAG, "    -> %s: [%.3f, %.3f, %.3f]", 
+                         config_.input_order.c_str(),
+                         data[i-2], data[i-1], data[i]);
+            }
+        }
+    } else {
+        const uint8_t* data = input->data.uint8;
+        for (int i = 0; i < sample_size; i++) {
+            ESP_LOGD(TAG, "  [%d]: %u", i, data[i]);
+            // Log channel groups for RGB/BGR
+            if (config_.input_channels >= 3 && i % config_.input_channels == 2) {
+                ESP_LOGD(TAG, "    -> %s: [%u, %u, %u]", 
+                         config_.input_order.c_str(),
+                         data[i-2], data[i-1], data[i]);
+            }
+        }
+    }
+}
+
+void ModelHandler::debug_input_pattern() const {
+    TfLiteTensor* input = input_tensor();
+    if (!input || input->type != kTfLiteFloat32) return;
+    
+    const float* data = input->data.f;
+    const int total_elements = input->bytes / sizeof(float);
+    const int channels = get_input_channels();
+    const int height = get_input_height();
+    const int width = get_input_width();
+    
+    ESP_LOGD(TAG, "Input pattern analysis: %dx%dx%d", width, height, channels);
+    
+    // Check if this looks like a proper image (not all zeros or uniform)
+    float channel_sums[3] = {0};
+    float channel_mins[3] = {std::numeric_limits<float>::max()};
+    float channel_maxs[3] = {std::numeric_limits<float>::lowest()};
+    int pixel_count = 0;
+    
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int pos = (y * width + x) * channels;
+            if (pos + 2 < total_elements) {
+                for (int c = 0; c < channels; c++) {
+                    float val = data[pos + c];
+                    channel_sums[c] += val;
+                    channel_mins[c] = std::min(channel_mins[c], val);
+                    channel_maxs[c] = std::max(channel_maxs[c], val);
+                }
+                pixel_count++;
+            }
+        }
+    }
+    
+    if (pixel_count > 0) {
+        ESP_LOGD(TAG, "Channel statistics:");
+        for (int c = 0; c < channels; c++) {
+            float mean = channel_sums[c] / pixel_count;
+            ESP_LOGD(TAG, "  Channel %d: min=%.3f, max=%.3f, mean=%.3f", 
+                     c, channel_mins[c], channel_maxs[c], mean);
+        }
+    }
+    
+    // Check for common preprocessing patterns
+    bool looks_normalized_0_1 = true;
+    bool looks_normalized_neg1_1 = true;
+    
+    for (int i = 0; i < total_elements; i++) {
+        if (data[i] < 0.0f || data[i] > 1.0f) looks_normalized_0_1 = false;
+        if (data[i] < -1.0f || data[i] > 1.0f) looks_normalized_neg1_1 = false;
+    }
+    
+    ESP_LOGD(TAG, "Data range analysis:");
+    ESP_LOGD(TAG, "  Looks like 0-1 normalized: %s", looks_normalized_0_1 ? "YES" : "NO");
+    ESP_LOGD(TAG, "  Looks like -1 to 1 normalized: %s", looks_normalized_neg1_1 ? "YES" : "NO");
 }
 
 ProcessedOutput ModelHandler::process_output(const float* output_data) const {
@@ -244,6 +341,42 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     ESP_LOGD(TAG, "Logits scale10 - Value: %.1f, Raw Max: %.2f, Confidence: %.6f", 
              result.value, max_val_output, result.confidence);
   }
+	else if (config_.output_processing == "experimental_scale") {
+		// Experimental: try to handle very negative logits
+		// Scale the outputs to make them more reasonable for softmax
+		std::vector<float> scaled_outputs(num_classes);
+		float scale_factor = 0.1f; // Adjust this based on observed output range
+		
+		for (int i = 0; i < num_classes; i++) {
+			scaled_outputs[i] = output_data[i] * scale_factor;
+		}
+		
+		// Then apply softmax to the scaled values
+		float sum = 0.0f;
+		std::vector<float> exp_values(num_classes);
+		
+		float max_val = *std::max_element(scaled_outputs.begin(), scaled_outputs.end());
+		for (int i = 0; i < num_classes; i++) {
+			exp_values[i] = expf(scaled_outputs[i] - max_val);
+			sum += exp_values[i];
+		}
+		
+		// Find the class with highest probability after softmax
+		int softmax_max_idx = 0;
+		float softmax_max_val = 0.0f;
+		for (int i = 0; i < num_classes; i++) {
+			float prob = exp_values[i] / sum;
+			if (prob > softmax_max_val) {
+				softmax_max_val = prob;
+				softmax_max_idx = i;
+			}
+		}
+		
+		result.value = static_cast<float>(softmax_max_idx) / config_.scale_factor;
+		result.confidence = softmax_max_val;
+		ESP_LOGD(TAG, "Experimental scale - Value: %.1f, Confidence: %.6f", 
+				 result.value, result.confidence);
+	}
   else {
     ESP_LOGE(TAG, "Unknown output processing method: %s", 
              config_.output_processing.c_str());
@@ -268,9 +401,31 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
     // Validate input size
     if (input_size != input->bytes) {
         ESP_LOGE(TAG, "Input size mismatch! Expected %d, got %zu", input->bytes, input_size);
+        ESP_LOGE(TAG, "Expected elements: %d, Got elements: %zu", 
+                 input->bytes / sizeof(float), input_size / sizeof(float));
         return false;
     }
-  
+	
+	ESP_LOGD(TAG, "Model input dimensions: %dx%dx%d", 
+         get_input_width(), get_input_height(), get_input_channels());
+	ESP_LOGD(TAG, "Provided input size: %zu elements (%zu bytes)", 
+			 input_size / sizeof(float), input_size);
+
+	if (input_size != get_input_width() * get_input_height() * get_input_channels() * sizeof(float)) {
+		ESP_LOGE(TAG, "Input dimension mismatch! Expected %d elements, got %zu", 
+				 get_input_width() * get_input_height() * get_input_channels(),
+				 input_size / sizeof(float));
+		return false;
+	}
+    
+    // Check if input_data is valid
+    ESP_LOGD(TAG, "Input data info: pointer=%p, size=%zu, tensor bytes=%d", 
+             input_data, input_size, input->bytes);
+    if (input_data == nullptr) {
+        ESP_LOGE(TAG, "Input data is null!");
+        return false;
+    }
+
     // Handle different input types
     if (input->type == kTfLiteUInt8) {
         // Quantized model processing
@@ -314,9 +469,7 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
 			}
 		}
 		
-		
-		
-		        // Add detailed input statistics
+		// Add detailed input statistics
         ESP_LOGD(TAG, "Input tensor statistics (float32, 0-255 range):");
         float sum = 0.0f;
         float min_val = std::numeric_limits<float>::max();
@@ -348,6 +501,8 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
             ESP_LOGW(TAG, "Too many zero values - possible channel order issue");
         }
 
+        // Debug input pattern
+        debug_input_pattern();
 	}
     // Perform inference
     if (interpreter_->Invoke() != kTfLiteOk) {
@@ -405,6 +560,67 @@ TfLiteTensor* ModelHandler::input_tensor() const {
 
 TfLiteTensor* ModelHandler::output_tensor() const {
   return interpreter_ ? interpreter_->output(0) : nullptr;
+}
+
+
+void ModelHandler::debug_model_architecture() const {
+    if (!tflite_model_ || !interpreter_) return;
+    
+    ESP_LOGD(TAG, "Model architecture analysis:");
+    
+    // Get the model structure
+    auto* subgraph = tflite_model_->subgraphs()->Get(0);
+    ESP_LOGD(TAG, "  - Number of operators: %d", subgraph->operators()->size());
+    ESP_LOGD(TAG, "  - Number of tensors: %d", subgraph->tensors()->size());
+    
+    // Check input and output tensors
+    TfLiteTensor* input = input_tensor();
+    TfLiteTensor* output = output_tensor();
+    
+    if (input && output) {
+        ESP_LOGD(TAG, "  - Input type: %s", 
+                 input->type == kTfLiteFloat32 ? "float32" : 
+                 input->type == kTfLiteUInt8 ? "uint8" : "other");
+        ESP_LOGD(TAG, "  - Output type: %s", 
+                 output->type == kTfLiteFloat32 ? "float32" : 
+                 output->type == kTfLiteUInt8 ? "uint8" : "other");
+    }
+    
+    // Check if this looks like a classification model
+    if (output && output->dims->size >= 2) {
+        int num_classes = output->dims->data[1];
+        ESP_LOGD(TAG, "  - Number of classes: %d", num_classes);
+        
+        if (num_classes == 100) {
+            ESP_LOGD(TAG, "  - Model type: 100-class classifier (scale10)");
+        } else if (num_classes == 10) {
+            ESP_LOGD(TAG, "  - Model type: 10-class classifier");
+        }
+    }
+    
+    // Log operator types for debugging
+    ESP_LOGD(TAG, "  - Operator codes:");
+    for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
+        const auto *op_code = tflite_model_->operator_codes()->Get(i);
+        ESP_LOGD(TAG, "    [%d]: %d (%s)", i, op_code->builtin_code(),
+                 tflite::EnumNameBuiltinOperator(op_code->builtin_code()));
+    }
+    
+    // Log tensor information
+    if (subgraph->tensors()) {
+        ESP_LOGD(TAG, "  - Tensor details:");
+        for (size_t i = 0; i < subgraph->tensors()->size(); ++i) {
+            const auto *tensor = subgraph->tensors()->Get(i);
+            ESP_LOGD(TAG, "    Tensor[%d]: %s, shape=[", i, tensor->name()->c_str());
+            if (tensor->shape()) {
+                for (size_t j = 0; j < tensor->shape()->size(); ++j) {
+                    ESP_LOGD(TAG, "%d", tensor->shape()->data()[j]);
+                    if (j < tensor->shape()->size() - 1) ESP_LOGD(TAG, ", ");
+                }
+            }
+            ESP_LOGD(TAG, "]");
+        }
+    }
 }
 
 }  // namespace meter_reader_tflite

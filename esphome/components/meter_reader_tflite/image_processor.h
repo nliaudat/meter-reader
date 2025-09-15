@@ -289,6 +289,48 @@ class ImageProcessor {
     int bytes_per_pixel_;          ///< Bytes per pixel for current format
     ProcessingStats stats_;        ///< Processing statistics
     mutable std::mutex processing_mutex_; ///< Thread safety mutex
+	
+	
+    /**
+     * @brief Arranges RGB channels according to the configured input order for float output.
+     * @param output Pointer to output buffer
+     * @param r Red channel value
+     * @param g Green channel value
+     * @param b Blue channel value
+     * @param output_channels Number of output channels
+     * @param normalize Whether to normalize values (0-1 range)
+     */
+    void arrange_channels(float* output, uint8_t r, uint8_t g, uint8_t b, 
+                         int output_channels, bool normalize) const;
+
+    /**
+     * @brief Arranges RGB channels according to the configured input order for uint8 output.
+     * @param output Pointer to output buffer
+     * @param r Red channel value
+     * @param g Green channel value
+     * @param b Blue channel value
+     * @param output_channels Number of output channels
+     */
+    void arrange_channels(uint8_t* output, uint8_t r, uint8_t g, uint8_t b, 
+                         int output_channels) const;
+	
+#ifdef DEBUG_METER_READER_TFLITE
+    void debug_log_image(const uint8_t* data, size_t size, 
+                        int width, int height, int channels,
+                        const std::string& stage);
+    void debug_log_float_image(const float* data, size_t count,
+                              int width, int height, int channels,
+                              const std::string& stage);
+    void debug_log_rgb888_image(const uint8_t* data, 
+                               int width, int height,
+                               const std::string& stage);
+    void debug_log_image_stats(const uint8_t* data, size_t size,
+                              const std::string& stage);
+    void debug_log_float_stats(const float* data, size_t count,
+                              const std::string& stage);
+#endif
+	
+	
 };
 
 }  // namespace meter_reader_tflite
