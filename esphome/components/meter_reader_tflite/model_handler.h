@@ -3,9 +3,9 @@
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "op_resolver.h"
-// #include "debug_utils.h"
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -21,7 +21,6 @@ struct ModelConfig {
   bool normalize = false;
   bool invert = false;
 };
-
 
 struct ProcessedOutput {
   float value;
@@ -48,81 +47,84 @@ class ModelHandler {
   
   ProcessedOutput get_processed_output() const { return processed_output_; } 
   
-	int get_input_width() const {
-		if (!interpreter_ || !input_tensor()) return 0;
-		if (input_tensor()->dims->size == 4) {
-			return input_tensor()->dims->data[2];  // [batch, height, width, channels]
-		} else if (input_tensor()->dims->size == 3) {
-			return input_tensor()->dims->data[1];  // [height, width, channels]
-		}
-		return 0;
-	}
+  int get_input_width() const {
+    if (!interpreter_ || !input_tensor()) return 0;
+    if (input_tensor()->dims->size == 4) {
+      return input_tensor()->dims->data[2];  // [batch, height, width, channels]
+    } else if (input_tensor()->dims->size == 3) {
+      return input_tensor()->dims->data[1];  // [height, width, channels]
+    }
+    return 0;
+  }
 
-	int get_input_height() const {
-		if (!interpreter_ || !input_tensor()) return 0;
-		if (input_tensor()->dims->size == 4) {
-			return input_tensor()->dims->data[1];  // [batch, height, width, channels]
-		} else if (input_tensor()->dims->size == 3) {
-			return input_tensor()->dims->data[0];  // [height, width, channels]
-		}
-		return 0;
-	}
+  int get_input_height() const {
+    if (!interpreter_ || !input_tensor()) return 0;
+    if (input_tensor()->dims->size == 4) {
+      return input_tensor()->dims->data[1];  // [batch, height, width, channels]
+    } else if (input_tensor()->dims->size == 3) {
+      return input_tensor()->dims->data[0];  // [height, width, channels]
+    }
+    return 0;
+  }
 
-	int get_input_channels() const {
-		if (!interpreter_ || !input_tensor()) return 0;
-		if (input_tensor()->dims->size == 4) {
-			return input_tensor()->dims->data[3];  // [batch, height, width, channels]
-		} else if (input_tensor()->dims->size == 3) {
-			return input_tensor()->dims->data[2];  // [height, width, channels]
-		}
-		return 0;
-	}
+  int get_input_channels() const {
+    if (!interpreter_ || !input_tensor()) return 0;
+    if (input_tensor()->dims->size == 4) {
+      return input_tensor()->dims->data[3];  // [batch, height, width, channels]
+    } else if (input_tensor()->dims->size == 3) {
+      return input_tensor()->dims->data[2];  // [height, width, channels]
+    }
+    return 0;
+  }
 
   const ModelConfig& get_config() const { return config_; }
   void set_config(const ModelConfig &config) { config_ = config; }
   
-	bool is_model_quantized() const {
-			return interpreter_ && input_tensor() && 
-				   input_tensor()->type == kTfLiteUInt8;
-		}
-		
-		const uint8_t* get_quantized_output() const {
-			return interpreter_ && output_tensor() ? 
-				   output_tensor()->data.uint8 : nullptr;
-		}
-		
-		float get_output_scale() const {
-			return interpreter_ && output_tensor() ? 
-				   output_tensor()->params.scale : 1.0f;
-		}
-		
-		int get_output_zero_point() const {
-			return interpreter_ && output_tensor() ? 
-				   output_tensor()->params.zero_point : 0;
-		}
+  bool is_model_quantized() const {
+      return interpreter_ && input_tensor() && 
+           input_tensor()->type == kTfLiteUInt8;
+    }
+    
+  const uint8_t* get_quantized_output() const {
+      return interpreter_ && output_tensor() ? 
+           output_tensor()->data.uint8 : nullptr;
+    }
+    
+  float get_output_scale() const {
+      return interpreter_ && output_tensor() ? 
+           output_tensor()->params.scale : 1.0f;
+    }
+    
+  int get_output_zero_point() const {
+      return interpreter_ && output_tensor() ? 
+           output_tensor()->params.zero_point : 0;
+    }
 
   void log_input_stats() const;
   void debug_input_pattern() const;
   void debug_model_architecture() const;
-
+  
+// #ifdef DEBUG_METER_READER_TFLITE
+  void debug_test_parameters(const uint8_t* input_data, size_t input_size);
+  void set_debug_mode(bool debug) { debug_mode_ = debug; }
+  std::vector<ModelConfig> generate_debug_configs() const;
+  void test_configuration(const ModelConfig& config, const uint8_t* input_data, size_t input_size);
+  bool debug_mode_ = false;
+// #endif
 
  protected:
   ProcessedOutput process_output(const float* output_data) const;
   bool validate_model_config();
 
+ private:
   const tflite::Model* tflite_model_{nullptr};
   std::unique_ptr<tflite::MicroInterpreter> interpreter_;
   ModelConfig config_;
   
   ProcessedOutput processed_output_ = {0.0f, 0.0f};
-  
-  
-private:
-
-    const float* model_output_ = nullptr;
-    int output_size_ = 0;
-	mutable std::vector<float> dequantized_output_;
-  
+  const float* model_output_ = nullptr;
+  int output_size_ = 0;
+  mutable std::vector<float> dequantized_output_;
 };
 
 }  // namespace meter_reader_tflite

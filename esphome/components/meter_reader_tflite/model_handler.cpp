@@ -6,6 +6,10 @@
 #include <algorithm>
 #include <limits>
 
+#ifdef DEBUG_METER_READER_TFLITE
+#include <sstream>
+#include <iomanip>
+#endif
 
 namespace esphome {
 namespace meter_reader_tflite {
@@ -28,28 +32,26 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
   }
 
 #ifdef DEBUG_METER_READER_TFLITE
-	static tflite::MicroMutableOpResolver<10> resolver;
+  static tflite::MicroMutableOpResolver<10> resolver;
 
+  TfLiteStatus status = kTfLiteOk;
+  if (resolver.AddQuantize() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddMul() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddAdd() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddConv2D() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddMaxPool2D() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddReshape() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddFullyConnected() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddDequantize() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddRelu() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddSoftmax() != kTfLiteOk) status = kTfLiteError;
 
+  if (status != kTfLiteOk) {
+    ESP_LOGE(TAG, "Failed to register one or more operations");
+    return false;
+  }
 
-	TfLiteStatus status = kTfLiteOk;
-	if (resolver.AddQuantize() != kTfLiteOk) status = kTfLiteError;
-	if (resolver.AddMul() != kTfLiteOk) status = kTfLiteError;
-	if (resolver.AddAdd() != kTfLiteOk) status = kTfLiteError;
-	if (resolver.AddConv2D() != kTfLiteOk) status = kTfLiteError;
-	if (resolver.AddMaxPool2D() != kTfLiteOk) status = kTfLiteError;
-	if (resolver.AddReshape() != kTfLiteOk) status = kTfLiteError;
-	if (resolver.AddFullyConnected() != kTfLiteOk) status = kTfLiteError;
-	if (resolver.AddDequantize() != kTfLiteOk) status = kTfLiteError;
-	if (resolver.AddRelu() != kTfLiteOk) status = kTfLiteError;
-	if (resolver.AddSoftmax() != kTfLiteOk) status = kTfLiteError;
-
-	if (status != kTfLiteOk) {
-		ESP_LOGE(TAG, "Failed to register one or more operations");
-		return false;
-	}
-
-	ESP_LOGD(TAG, "All operations registered successfully");
+  ESP_LOGD(TAG, "All operations registered successfully");
 
 #else
   // Your existing dynamic registration
@@ -301,7 +303,7 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     float sum = 0.0f;
     std::vector<float> exp_values(num_classes);
     
-	// Subtract max value for numerical stability
+    // Subtract max value for numerical stability
     float max_val = *std::max_element(output_data, output_data + num_classes);
         for (int i = 0; i < num_classes; i++) {
             exp_values[i] = expf(output_data[i] - max_val);
@@ -341,42 +343,42 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     ESP_LOGD(TAG, "Logits scale10 - Value: %.1f, Raw Max: %.2f, Confidence: %.6f", 
              result.value, max_val_output, result.confidence);
   }
-	else if (config_.output_processing == "experimental_scale") {
-		// Experimental: try to handle very negative logits
-		// Scale the outputs to make them more reasonable for softmax
-		std::vector<float> scaled_outputs(num_classes);
-		float scale_factor = 0.1f; // Adjust this based on observed output range
-		
-		for (int i = 0; i < num_classes; i++) {
-			scaled_outputs[i] = output_data[i] * scale_factor;
-		}
-		
-		// Then apply softmax to the scaled values
-		float sum = 0.0f;
-		std::vector<float> exp_values(num_classes);
-		
-		float max_val = *std::max_element(scaled_outputs.begin(), scaled_outputs.end());
-		for (int i = 0; i < num_classes; i++) {
-			exp_values[i] = expf(scaled_outputs[i] - max_val);
-			sum += exp_values[i];
-		}
-		
-		// Find the class with highest probability after softmax
-		int softmax_max_idx = 0;
-		float softmax_max_val = 0.0f;
-		for (int i = 0; i < num_classes; i++) {
-			float prob = exp_values[i] / sum;
-			if (prob > softmax_max_val) {
-				softmax_max_val = prob;
-				softmax_max_idx = i;
-			}
-		}
-		
-		result.value = static_cast<float>(softmax_max_idx) / config_.scale_factor;
-		result.confidence = softmax_max_val;
-		ESP_LOGD(TAG, "Experimental scale - Value: %.1f, Confidence: %.6f", 
-				 result.value, result.confidence);
-	}
+  else if (config_.output_processing == "experimental_scale") {
+    // Experimental: try to handle very negative logits
+    // Scale the outputs to make them more reasonable for softmax
+    std::vector<float> scaled_outputs(num_classes);
+    float scale_factor = 0.1f; // Adjust this based on observed output range
+    
+    for (int i = 0; i < num_classes; i++) {
+      scaled_outputs[i] = output_data[i] * scale_factor;
+    }
+    
+    // Then apply softmax to the scaled values
+    float sum = 0.0f;
+    std::vector<float> exp_values(num_classes);
+    
+    float max_val = *std::max_element(scaled_outputs.begin(), scaled_outputs.end());
+    for (int i = 0; i < num_classes; i++) {
+      exp_values[i] = expf(scaled_outputs[i] - max_val);
+      sum += exp_values[i];
+    }
+    
+    // Find the class with highest probability after softmax
+    int softmax_max_idx = 0;
+    float softmax_max_val = 0.0f;
+    for (int i = 0; i < num_classes; i++) {
+      float prob = exp_values[i] / sum;
+      if (prob > softmax_max_val) {
+        softmax_max_val = prob;
+        softmax_max_idx = i;
+      }
+    }
+    
+    result.value = static_cast<float>(softmax_max_idx) / config_.scale_factor;
+    result.confidence = softmax_max_val;
+    ESP_LOGD(TAG, "Experimental scale - Value: %.1f, Confidence: %.6f", 
+             result.value, result.confidence);
+  }
   else {
     ESP_LOGE(TAG, "Unknown output processing method: %s", 
              config_.output_processing.c_str());
@@ -405,18 +407,18 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
                  input->bytes / sizeof(float), input_size / sizeof(float));
         return false;
     }
-	
-	ESP_LOGD(TAG, "Model input dimensions: %dx%dx%d", 
+  
+  ESP_LOGD(TAG, "Model input dimensions: %dx%dx%d", 
          get_input_width(), get_input_height(), get_input_channels());
-	ESP_LOGD(TAG, "Provided input size: %zu elements (%zu bytes)", 
-			 input_size / sizeof(float), input_size);
+  ESP_LOGD(TAG, "Provided input size: %zu elements (%zu bytes)", 
+       input_size / sizeof(float), input_size);
 
-	if (input_size != get_input_width() * get_input_height() * get_input_channels() * sizeof(float)) {
-		ESP_LOGE(TAG, "Input dimension mismatch! Expected %d elements, got %zu", 
-				 get_input_width() * get_input_height() * get_input_channels(),
-				 input_size / sizeof(float));
-		return false;
-	}
+  if (input_size != get_input_width() * get_input_height() * get_input_channels() * sizeof(float)) {
+    ESP_LOGE(TAG, "Input dimension mismatch! Expected %d elements, got %zu", 
+         get_input_width() * get_input_height() * get_input_channels(),
+         input_size / sizeof(float));
+    return false;
+  }
     
     // Check if input_data is valid
     ESP_LOGD(TAG, "Input data info: pointer=%p, size=%zu, tensor bytes=%d", 
@@ -444,32 +446,32 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
                     (input->data.uint8[i] - input_zero_point) * input_scale);
         }
     } 
-	else if (input->type == kTfLiteFloat32) {
-		
-		float* dst = input->data.f;
-		if (config_.normalize) {
-			// Normalize to [0,1]
-			for (size_t i = 0; i < input_size; i++) {
-				dst[i] = static_cast<float>(input_data[i]) / 255.0f;
-			}
-			
-			ESP_LOGD(TAG, "First 5 float32 inputs (normalized):");
-			for (int i = 0; i < 5 && i < input_size; i++) {
-				ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
-			}
-		} else {
-			// Keep in [0,255] range (if model expects this)
-			for (size_t i = 0; i < input_size; i++) {
-				dst[i] = static_cast<float>(input_data[i]);
-			}
-			
-			ESP_LOGD(TAG, "First 5 float32 inputs (NOT normalized: [0-255 range]):");
-			for (int i = 0; i < 5 && i < input_size; i++) {
-				ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
-			}
-		}
-		
-		// Add detailed input statistics
+  else if (input->type == kTfLiteFloat32) {
+    
+    float* dst = input->data.f;
+    if (config_.normalize) {
+      // Normalize to [0,1]
+      for (size_t i = 0; i < input_size; i++) {
+        dst[i] = static_cast<float>(input_data[i]) / 255.0f;
+      }
+      
+      ESP_LOGD(TAG, "First 5 float32 inputs (normalized):");
+      for (int i = 0; i < 5 && i < input_size; i++) {
+        ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
+      }
+    } else {
+      // Keep in [0,255] range (if model expects this)
+      for (size_t i = 0; i < input_size; i++) {
+        dst[i] = static_cast<float>(input_data[i]);
+      }
+      
+      ESP_LOGD(TAG, "First 5 float32 inputs (NOT normalized: [0-255 range]):");
+      for (int i = 0; i < 5 && i < input_size; i++) {
+        ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
+      }
+    }
+    
+    // Add detailed input statistics
         ESP_LOGD(TAG, "Input tensor statistics (float32, 0-255 range):");
         float sum = 0.0f;
         float min_val = std::numeric_limits<float>::max();
@@ -503,13 +505,13 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
 
         // Debug input pattern
         debug_input_pattern();
-	}
-	
-	ESP_LOGD("DEBUG", "First 10 input values:");
-	for (int i = 0; i < 10; i++) {
-		ESP_LOGD("DEBUG", "  [%d]: %f", i, input_data[i]);
-	}
-	
+  }
+  
+  ESP_LOGD("DEBUG", "First 10 input values:");
+  for (int i = 0; i < 10; i++) {
+    ESP_LOGD("DEBUG", "  [%d]: %f", i, input_data[i]);
+  }
+  
     // Perform inference
     if (interpreter_->Invoke() != kTfLiteOk) {
         ESP_LOGE(TAG, "Inference failed");
@@ -567,7 +569,6 @@ TfLiteTensor* ModelHandler::input_tensor() const {
 TfLiteTensor* ModelHandler::output_tensor() const {
   return interpreter_ ? interpreter_->output(0) : nullptr;
 }
-
 
 void ModelHandler::debug_model_architecture() const {
     if (!tflite_model_ || !interpreter_) return;
@@ -628,6 +629,90 @@ void ModelHandler::debug_model_architecture() const {
         }
     }
 }
+
+// #ifdef DEBUG_METER_READER_TFLITE
+
+std::vector<ModelConfig> ModelHandler::generate_debug_configs() const {
+    std::vector<ModelConfig> configs;
+    
+    // Base configurations to test
+    std::vector<std::string> input_orders = {"BGR", "RGB"};
+    std::vector<std::pair<int, int>> input_sizes = {{32, 20}, {20, 32}};
+    std::vector<bool> normalize_options = {true, false};
+    std::vector<std::string> input_types = {"float32", "uint8"};
+    std::vector<std::string> output_processings = {
+        "softmax_scale10", "softmax", "direct_class", "logits_scale10", "experimental_scale"
+    };
+    
+    // Generate all combinations
+    for (const auto& input_order : input_orders) {
+        for (const auto& input_size : input_sizes) {
+            for (bool normalize : normalize_options) {
+                for (const auto& input_type : input_types) {
+                    for (const auto& output_processing : output_processings) {
+                        ModelConfig config;
+                        config.description = "debug_config";
+                        config.input_order = input_order;
+                        config.input_size = input_size;
+                        config.normalize = normalize;
+                        config.input_type = input_type;
+                        config.output_processing = output_processing;
+                        config.scale_factor = 10.0f;
+                        config.input_channels = 3;
+                        config.invert = false;
+                        
+                        configs.push_back(config);
+                    }
+                }
+            }
+        }
+    }
+    
+    return configs;
+}
+
+void ModelHandler::test_configuration(const ModelConfig& config, const uint8_t* input_data, size_t input_size) {
+    ESP_LOGI(TAG, "Testing configuration:");
+    ESP_LOGI(TAG, "  Input order: %s", config.input_order.c_str());
+    ESP_LOGI(TAG, "  Input size: %dx%d", config.input_size.first, config.input_size.second);
+    ESP_LOGI(TAG, "  Normalize: %s", config.normalize ? "true" : "false");
+    ESP_LOGI(TAG, "  Input type: %s", config.input_type.c_str());
+    ESP_LOGI(TAG, "  Output processing: %s", config.output_processing.c_str());
+    
+    // Temporarily set this config
+    ModelConfig original_config = config_;
+    config_ = config;
+    
+    // Run inference
+    if (invoke_model(input_data, input_size)) {
+        ESP_LOGI(TAG, "  Result: Value=%.1f, Confidence=%.6f", 
+                 processed_output_.value, processed_output_.confidence);
+    } else {
+        ESP_LOGI(TAG, "  Result: FAILED");
+    }
+    
+    // Restore original config
+    config_ = original_config;
+}
+
+void ModelHandler::debug_test_parameters(const uint8_t* input_data, size_t input_size) {
+    ESP_LOGI(TAG, "=== DEBUG PARAMETER TESTING ===");
+    
+    // Generate test configurations
+    auto configs = generate_debug_configs();
+    
+    ESP_LOGI(TAG, "Testing %zu different configurations", configs.size());
+    
+    // Test each configuration
+    for (size_t i = 0; i < configs.size(); i++) {
+        ESP_LOGI(TAG, "--- Test %zu/%zu ---", i + 1, configs.size());
+        test_configuration(configs[i], input_data, input_size);
+    }
+    
+    ESP_LOGI(TAG, "=== DEBUG TESTING COMPLETE ===");
+}
+
+// #endif
 
 }  // namespace meter_reader_tflite
 }  // namespace esphome

@@ -79,6 +79,9 @@ void MeterReaderTFLite::setup() {
             this->set_timeout(1000, [this]() { // Small delay to ensure everything is ready
                 this->test_with_debug_image();
             });
+			
+			
+			// ModelHandler::debug_test_parameters();
         }
         #endif
 		
