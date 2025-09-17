@@ -177,6 +177,12 @@ async def to_code(config):
         )
         
         cg.add(
+            cg.RawStatement(
+                f"{config[CONF_ID]}->set_debug_image({debug_image_id}, sizeof({debug_image_id}));"
+            )
+        )
+        
+        cg.add(
             var.set_debug_image(
                 cg.RawExpression(debug_image_id),
                 len(debug_image_data)
@@ -194,3 +200,14 @@ async def to_code(config):
         crop_global = await cg.get_variable(config['crop_zones_global'])
         # Instead of passing the component, pass its value
         cg.add(var.set_crop_zones_global_string(crop_global.value()))
+        
+        
+    # cg.add_define("USE_SERVICE_PARAM_TEST")
+    
+    # //Register the service using ESPHome's service registration
+    # template = cg.RawStatement(f"""
+        # register_service({config[CONF_ID]}_test_parameters, []({config[CONF_ID]} *comp) {{
+            # comp->debug_test_parameters();
+        # }});
+    # """)
+    # cg.add(template)
