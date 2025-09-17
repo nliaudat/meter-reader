@@ -507,10 +507,12 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         debug_input_pattern();
   }
   
-  ESP_LOGD("DEBUG", "First 10 input values:");
-  for (int i = 0; i < 10; i++) {
-    ESP_LOGD("DEBUG", "  [%d]: %f", i, input_data[i]);
+#ifdef DEBUG_METER_READER_TFLITE
+  ESP_LOGD(TAG, "First 10 input values:");
+  for (int i = 0; i < 10 && i < input_size; i++) {
+    ESP_LOGD(TAG, "  [%d]: %u", i, input_data[i]);
   }
+#endif
   
     // Perform inference
     if (interpreter_->Invoke() != kTfLiteOk) {
@@ -630,7 +632,7 @@ void ModelHandler::debug_model_architecture() const {
     }
 }
 
-// #ifdef DEBUG_METER_READER_TFLITE
+#ifdef DEBUG_METER_READER_TFLITE
 
 std::vector<ModelConfig> ModelHandler::generate_debug_configs() const {
     std::vector<ModelConfig> configs;
@@ -671,7 +673,9 @@ std::vector<ModelConfig> ModelHandler::generate_debug_configs() const {
     return configs;
 }
 
-void ModelHandler::test_configuration(const ModelConfig& config, const uint8_t* input_data, size_t input_size) {
+void ModelHandler::test_configuration(const ModelConfig& config, 
+                                    const std::vector<std::vector<uint8_t>>& zone_data,
+                                    std::vector<ConfigTestResult>& results) {
     ESP_LOGI(TAG, "Testing configuration:");
     ESP_LOGI(TAG, "  Input order: %s", config.input_order.c_str());
     ESP_LOGI(TAG, "  Input size: %dx%d", config.input_size.first, config.input_size.second);
@@ -683,36 +687,112 @@ void ModelHandler::test_configuration(const ModelConfig& config, const uint8_t* 
     ModelConfig original_config = config_;
     config_ = config;
     
-    // Run inference
-    if (invoke_model(input_data, input_size)) {
-        ESP_LOGI(TAG, "  Result: Value=%.1f, Confidence=%.6f", 
-                 processed_output_.value, processed_output_.confidence);
-    } else {
-        ESP_LOGI(TAG, "  Result: FAILED");
+    ConfigTestResult result;
+    result.config = config;
+    result.avg_confidence = 0.0f;
+    
+    float total_confidence = 0.0f;
+    int successful_zones = 0;
+    
+    // Test this configuration on all zones
+    for (size_t zone_idx = 0; zone_idx < zone_data.size(); zone_idx++) {
+        const auto& zone_buffer = zone_data[zone_idx];
+		
+		// Reset watchdog every few zones to prevent timeout
+        if (zone_idx % 3 == 0) {
+            feed_watchdog();
+        }
+        
+        if (invoke_model(zone_buffer.data(), zone_buffer.size())) {
+            ProcessedOutput output = get_processed_output();
+            result.zone_confidences.push_back(output.confidence);
+            result.zone_values.push_back(output.value);
+            total_confidence += output.confidence;
+            successful_zones++;
+            
+            ESP_LOGI(TAG, "  Zone %d: Value=%.1f, Confidence=%.6f", 
+                     zone_idx + 1, output.value, output.confidence);
+        } else {
+            ESP_LOGI(TAG, "  Zone %d: FAILED", zone_idx + 1);
+            result.zone_confidences.push_back(0.0f);
+            result.zone_values.push_back(0.0f);
+        }
     }
+    
+    if (successful_zones > 0) {
+        result.avg_confidence = total_confidence / successful_zones;
+        ESP_LOGI(TAG, "  Average confidence: %.6f", result.avg_confidence);
+    } else {
+        result.avg_confidence = 0.0f;
+        ESP_LOGI(TAG, "  All zones failed");
+    }
+    
+    results.push_back(result);
     
     // Restore original config
     config_ = original_config;
 }
 
-void ModelHandler::debug_test_parameters(const uint8_t* input_data, size_t input_size) {
+void ModelHandler::debug_test_parameters(const std::vector<std::vector<uint8_t>>& zone_data) {
     ESP_LOGI(TAG, "=== DEBUG PARAMETER TESTING ===");
+    ESP_LOGI(TAG, "Testing %d zones with %zu configurations", 
+             zone_data.size(), generate_debug_configs().size());
+			 
+	// Reset watchdog at the start
+    feed_watchdog();
     
-    // Generate test configurations
+    std::vector<ConfigTestResult> all_results;
     auto configs = generate_debug_configs();
     
-    ESP_LOGI(TAG, "Testing %zu different configurations", configs.size());
-    
-    // Test each configuration
     for (size_t i = 0; i < configs.size(); i++) {
         ESP_LOGI(TAG, "--- Test %zu/%zu ---", i + 1, configs.size());
-        test_configuration(configs[i], input_data, input_size);
+        test_configuration(configs[i], zone_data, all_results);
+		
+        // Reset watchdog every few configurations
+        if (i % 5 == 0) {
+            feed_watchdog();
+        }
+    }
+    
+    // Sort results by average confidence (descending)
+    std::sort(all_results.begin(), all_results.end(), 
+        [](const ConfigTestResult& a, const ConfigTestResult& b) {
+            return a.avg_confidence > b.avg_confidence;
+        });
+    
+    // Display top 10 configurations
+    ESP_LOGI(TAG, "=== TOP 10 CONFIGURATIONS ===");
+    int display_count = std::min(10, static_cast<int>(all_results.size()));
+    
+    for (int i = 0; i < display_count; i++) {
+        const auto& result = all_results[i];
+        ESP_LOGI(TAG, "%d. Avg Confidence: %.6f", i + 1, result.avg_confidence);
+        ESP_LOGI(TAG, "   Input order: %s", result.config.input_order.c_str());
+        ESP_LOGI(TAG, "   Input size: %dx%d", result.config.input_size.first, result.config.input_size.second);
+        ESP_LOGI(TAG, "   Normalize: %s", result.config.normalize ? "true" : "false");
+        ESP_LOGI(TAG, "   Input type: %s", result.config.input_type.c_str());
+        ESP_LOGI(TAG, "   Output processing: %s", result.config.output_processing.c_str());
+        
+        // Show zone-by-zone results for top configs
+        for (size_t zone_idx = 0; zone_idx < result.zone_confidences.size(); zone_idx++) {
+            ESP_LOGI(TAG, "   Zone %d: Value=%.1f, Confidence=%.6f", 
+                     zone_idx + 1, result.zone_values[zone_idx], result.zone_confidences[zone_idx]);
+        }
+        ESP_LOGI(TAG, "   ---");
     }
     
     ESP_LOGI(TAG, "=== DEBUG TESTING COMPLETE ===");
 }
 
-// #endif
+void ModelHandler::feed_watchdog() {
+    // ESP32-specific watchdog feed
+    #ifdef ESP_PLATFORM
+    esp_task_wdt_reset();
+    #endif
+    ESP_LOGD(TAG, "Watchdog fed");
+}
+
+#endif
 
 }  // namespace meter_reader_tflite
 }  // namespace esphome

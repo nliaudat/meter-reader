@@ -15,10 +15,10 @@
 
 // Then include other headers
 #include "image_processor.h"
-#include "esp_log.h"
+// #include "esp_log.h"
 #include "debug_utils.h"
 #include <algorithm>
-#include <cstring>
+// #include <cstring>
 
 
 namespace esphome {
@@ -516,6 +516,7 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
     ProcessResult result;
     
     ESP_LOGD(TAG, "Processing zone [%d,%d,%d,%d]", zone.x1, zone.y1, zone.x2, zone.y2);
+	ESP_LOGD(TAG, "Zone dimensions: %dx%d", zone.x2 - zone.x1, zone.y2 - zone.y1);
 
     // Validate input and zone
     if (!validate_input_image(image)) {

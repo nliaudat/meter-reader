@@ -12,7 +12,7 @@
 #include "crop_zones.h"
 #include "model_handler.h"
 #include "esp_heap_caps.h"
-#include "esp_log.h"
+// #include "esp_log.h"
 #include <memory>
 #include <vector>
 #include <string>

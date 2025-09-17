@@ -114,6 +114,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void set_debug_image(const uint8_t* data, size_t size);
   void test_with_debug_image();
   void set_debug_mode(bool debug_mode);
+  void debug_test_with_pattern();
 #endif
 
  protected:

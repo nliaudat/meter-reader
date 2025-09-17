@@ -80,9 +80,14 @@ void MeterReaderTFLite::setup() {
                 this->test_with_debug_image();
             });
 			
+		//check all configs
+		//model_handler_.debug_test_parameters(debug_image_->get_data_buffer(), debug_image_->get_data_length());
 			
-			// ModelHandler::debug_test_parameters();
-        }
+
+        } else {
+			ESP_LOGE(TAG, "No debug image set to process.");
+		}
+		
         #endif
 		
 		
@@ -434,29 +439,99 @@ void MeterReaderTFLite::set_debug_image(const uint8_t* data, size_t size) {
              size, camera_width_, camera_height_);
 }
 
+// void MeterReaderTFLite::test_with_debug_image() {
+    // if (debug_image_) {
+        // // Check if ImageProcessor is ready
+        // if (!image_processor_) {
+            // ESP_LOGE(TAG, "ImageProcessor not initialized yet");
+            // return;
+        // }
+        
+        //  //Ensure camera dimensions are set for debug image
+        // if (camera_width_ == 0 || camera_height_ == 0) {
+            // ESP_LOGE(TAG, "Camera dimensions not set for debug image processing");
+            // return;
+        // }
+        
+        // // Use static debug zones instead of parsed zones
+        // crop_zone_handler_.set_debug_zones();
+        
+        // ESP_LOGI(TAG, "Processing debug image with static crop zones...");
+        // process_full_image(debug_image_);
+		
+    // } else {
+        // ESP_LOGE(TAG, "No debug image set to process.");
+    // }
+// }
+
+
 void MeterReaderTFLite::test_with_debug_image() {
     if (debug_image_) {
-        // Check if ImageProcessor is ready
         if (!image_processor_) {
             ESP_LOGE(TAG, "ImageProcessor not initialized yet");
             return;
         }
         
-        // Ensure camera dimensions are set for debug image
-        if (camera_width_ == 0 || camera_height_ == 0) {
-            ESP_LOGE(TAG, "Camera dimensions not set for debug image processing");
-            return;
-        }
-        
-        // Use static debug zones instead of parsed zones
+        // Use static debug zones
         crop_zone_handler_.set_debug_zones();
+        auto debug_zones = crop_zone_handler_.get_zones();
         
-        ESP_LOGI(TAG, "Processing debug image with static crop zones...");
-        process_full_image(debug_image_);
+        ESP_LOGI(TAG, "Processing %d debug zones...", debug_zones.size());
+        
+        // Process all debug zones through the image processor
+        auto processed_zones = image_processor_->split_image_in_zone(debug_image_, debug_zones);
+
+        if (!processed_zones.empty() && processed_zones.size() == debug_zones.size()) {
+            // Prepare zone data for testing
+            std::vector<std::vector<uint8_t>> zone_data;
+            
+            for (size_t zone_idx = 0; zone_idx < processed_zones.size(); zone_idx++) {
+                auto& zone_result = processed_zones[zone_idx];
+                zone_data.push_back(std::vector<uint8_t>(
+                    zone_result.data->get(), 
+                    zone_result.data->get() + zone_result.size
+                ));
+                
+                ESP_LOGI(TAG, "Zone %d: %zu bytes processed", zone_idx + 1, zone_result.size);
+            }
+            
+            // Test all configurations with all zones
+            model_handler_.debug_test_parameters(zone_data);
+        } else {
+            ESP_LOGE(TAG, "Zone processing failed. Expected %d zones, got %d", 
+                     debug_zones.size(), processed_zones.size());
+        }
     } else {
         ESP_LOGE(TAG, "No debug image set to process.");
     }
 }
+
+void MeterReaderTFLite::debug_test_with_pattern() {
+    ESP_LOGI(TAG, "Testing with simple pattern instead of debug image");
+    
+    int width = model_handler_.get_input_width();
+    int height = model_handler_.get_input_height();
+    int channels = model_handler_.get_input_channels();
+    size_t input_size = width * height * channels * sizeof(float);
+    
+    std::vector<uint8_t> test_pattern(input_size);
+    float* float_pattern = reinterpret_cast<float*>(test_pattern.data());
+    
+    // Create a simple test pattern
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int pos = (y * width + x) * channels;
+            
+            // Simple gradient pattern
+            float_pattern[pos] = (x / float(width)) * 255.0f;     // R
+            if (channels > 1) float_pattern[pos + 1] = (y / float(height)) * 255.0f;  // G
+            if (channels > 2) float_pattern[pos + 2] = 128.0f;    // B
+        }
+    }
+    
+    model_handler_.debug_test_parameters(test_pattern.data(), input_size);
+}
+
 
 
 void MeterReaderTFLite::set_debug_mode(bool debug_mode) {
