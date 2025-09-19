@@ -439,33 +439,33 @@ void MeterReaderTFLite::set_debug_image(const uint8_t* data, size_t size) {
              size, camera_width_, camera_height_);
 }
 
-// void MeterReaderTFLite::test_with_debug_image() {
-    // if (debug_image_) {
-        // // Check if ImageProcessor is ready
-        // if (!image_processor_) {
-            // ESP_LOGE(TAG, "ImageProcessor not initialized yet");
-            // return;
-        // }
-        
-        //  //Ensure camera dimensions are set for debug image
-        // if (camera_width_ == 0 || camera_height_ == 0) {
-            // ESP_LOGE(TAG, "Camera dimensions not set for debug image processing");
-            // return;
-        // }
-        
-        // // Use static debug zones instead of parsed zones
-        // crop_zone_handler_.set_debug_zones();
-        
-        // ESP_LOGI(TAG, "Processing debug image with static crop zones...");
-        // process_full_image(debug_image_);
-		
-    // } else {
-        // ESP_LOGE(TAG, "No debug image set to process.");
-    // }
-// }
-
-
 void MeterReaderTFLite::test_with_debug_image() {
+    if (debug_image_) {
+        // Check if ImageProcessor is ready
+        if (!image_processor_) {
+            ESP_LOGE(TAG, "ImageProcessor not initialized yet");
+            return;
+        }
+        
+         //Ensure camera dimensions are set for debug image
+        if (camera_width_ == 0 || camera_height_ == 0) {
+            ESP_LOGE(TAG, "Camera dimensions not set for debug image processing");
+            return;
+        }
+        
+        // Use static debug zones instead of parsed zones
+        crop_zone_handler_.set_debug_zones();
+        
+        ESP_LOGI(TAG, "Processing debug image with static crop zones...");
+        process_full_image(debug_image_);
+		
+    } else {
+        ESP_LOGE(TAG, "No debug image set to process.");
+    }
+}
+
+
+void MeterReaderTFLite::test_with_debug_image_all_configs() {
     if (debug_image_) {
         if (!image_processor_) {
             ESP_LOGE(TAG, "ImageProcessor not initialized yet");

@@ -616,20 +616,20 @@ void ModelHandler::debug_model_architecture() const {
     }
     
     // Log tensor information
-    if (subgraph->tensors()) {
-        ESP_LOGD(TAG, "  - Tensor details:");
-        for (size_t i = 0; i < subgraph->tensors()->size(); ++i) {
-            const auto *tensor = subgraph->tensors()->Get(i);
-            ESP_LOGD(TAG, "    Tensor[%d]: %s, shape=[", i, tensor->name()->c_str());
-            if (tensor->shape()) {
-                for (size_t j = 0; j < tensor->shape()->size(); ++j) {
-                    ESP_LOGD(TAG, "%d", tensor->shape()->data()[j]);
-                    if (j < tensor->shape()->size() - 1) ESP_LOGD(TAG, ", ");
-                }
-            }
-            ESP_LOGD(TAG, "]");
-        }
-    }
+    // if (subgraph->tensors()) {
+        // ESP_LOGD(TAG, "  - Tensor details:");
+        // for (size_t i = 0; i < subgraph->tensors()->size(); ++i) {
+            // const auto *tensor = subgraph->tensors()->Get(i);
+            // ESP_LOGD(TAG, "    Tensor[%d]: %s, shape=[", i, tensor->name()->c_str());
+            // if (tensor->shape()) {
+                // for (size_t j = 0; j < tensor->shape()->size(); ++j) {
+                    // ESP_LOGD(TAG, "%d", tensor->shape()->data()[j]);
+                    // if (j < tensor->shape()->size() - 1) ESP_LOGD(TAG, ", ");
+                // }
+            // }
+            // ESP_LOGD(TAG, "]");
+        // }
+    // }
 }
 
 #ifdef DEBUG_METER_READER_TFLITE

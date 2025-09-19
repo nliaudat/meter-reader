@@ -18,6 +18,23 @@
 #define DURATION_LOG(msg, val)
 #endif
 
+
+// Helper function to convert TfLiteType to string
+inline const char* tflite_type_to_string(TfLiteType type) {
+    switch (type) {
+        case kTfLiteFloat32: return "kTfLiteFloat32";
+        case kTfLiteUInt8: return "kTfLiteUInt8";
+        case kTfLiteInt8: return "kTfLiteInt8";
+        case kTfLiteInt32: return "kTfLiteInt32";
+        case kTfLiteInt64: return "kTfLiteInt64";
+        case kTfLiteBool: return "kTfLiteBool";
+        case kTfLiteString: return "kTfLiteString";
+        case kTfLiteNoType: return "kTfLiteNoType";
+        default: return "Unknown";
+    }
+}
+
+
 /* namespace esphome {
 namespace meter_reader_tflite {
 

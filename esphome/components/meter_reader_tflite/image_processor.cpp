@@ -21,6 +21,44 @@
 // #include <cstring>
 
 
+#ifdef DEBUG_METER_READER_TFLITE
+#define DEBUG_ZONE_INFO(zone, crop_w, crop_h, model_w, model_h) \
+    ESP_LOGI(TAG, "ZONE: [%d,%d,%d,%d] -> %dx%d -> %dx%d", \
+             zone.x1, zone.y1, zone.x2, zone.y2, \
+             crop_w, crop_h, model_w, model_h)
+
+#define DEBUG_FIRST_PIXELS(data, count, channels) \
+    do { \
+        ESP_LOGI(TAG, "FIRST_PIXELS:"); \
+        for (int i = 0; i < std::min(5, count); i += channels) { \
+            if (i + channels - 1 < count) { \
+                ESP_LOGI(TAG, "  Pixel %d: ", i/channels); \
+                for (int c = 0; c < channels; c++) { \
+                    ESP_LOGI(TAG, "    Ch%d: %.1f", c, data[i + c]); \
+                } \
+            } \
+        } \
+    } while (0)
+
+#define DEBUG_CHANNEL_ORDER(data, count, channels) \
+    do { \
+        if (channels >= 3) { \
+            ESP_LOGI(TAG, "CHANNEL_ORDER_TEST:"); \
+            ESP_LOGI(TAG, "  First pixel: %.1f, %.1f, %.1f", \
+                     data[0], data[1], data[2]); \
+            /* Simple heuristic for BGR vs RGB */ \
+            if (data[0] > data[2]) { \
+                ESP_LOGI(TAG, "  -> Likely BGR order (first > last)"); \
+            } else if (data[2] > data[0]) { \
+                ESP_LOGI(TAG, "  -> Likely RGB order (last > first)"); \
+            } else { \
+                ESP_LOGI(TAG, "  -> Channel order unclear"); \
+            } \
+        } \
+    } while (0)
+#endif
+
+
 namespace esphome {
 namespace meter_reader_tflite {
 
@@ -476,7 +514,7 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
                                             model_channels);
     }
 
-#ifdef DEBUG_METER_READER_TFLITE
+/* #ifdef DEBUG_METER_READER_TFLITE
 	if (input_type == kTfLiteFloat32) {
 		debug_log_float_image(reinterpret_cast<float*>(output_buffer), 
 							 model_width * model_height * model_channels,
@@ -487,6 +525,27 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
 					   model_width, model_height, model_channels,
 					   "jpeg_scaled_uint8");
 }
+#endif */
+
+#ifdef DEBUG_METER_READER_TFLITE
+    // Add ZONE_ANALYSIS debug output here
+    if (input_type == kTfLiteFloat32) {
+        debug_analyze_float_zone(reinterpret_cast<float*>(output_buffer), 
+                                model_width, model_height, model_channels,
+                                "jpeg_final_output", 
+                                model_handler_->get_config().normalize);
+        // debug_output_float_preview(reinterpret_cast<float*>(output_buffer),
+                                 // model_width, model_height, model_channels,
+                                 // "jpeg_final_preview",
+                                 // model_handler_->get_config().normalize);
+    } else if (input_type == kTfLiteUInt8) {
+        debug_analyze_processed_zone(output_buffer, 
+                                   model_width, model_height, model_channels,
+                                   "jpeg_final_output");
+        // debug_output_zone_preview(output_buffer,
+                                // model_width, model_height, model_channels,
+                                // "jpeg_final_preview");
+    }
 #endif
 
     // Free cropped buffer
@@ -667,6 +726,11 @@ bool ImageProcessor::process_raw_zone_to_buffer(
         return false;
     }
 
+    // Log the processing info at the start
+    ESP_LOGD(TAG, "Processing %s and input type %s", 
+             config_.pixel_format.c_str(), 
+             tflite_type_to_string(input_type));
+
     // Process based on input format
     bool success = false;
     
@@ -732,6 +796,7 @@ bool ImageProcessor::process_raw_zone_to_buffer(
     return true;
 }
 
+
 bool ImageProcessor::process_rgb888_crop_and_scale_to_float32(
     const uint8_t* input_data, const CropZone &zone,
     int crop_width, int crop_height,
@@ -767,16 +832,47 @@ bool ImageProcessor::process_rgb888_crop_and_scale_to_float32(
         }
     }
     
-#ifdef DEBUG_METER_READER_TFLITE
-    debug_log_float_image(float_output, model_width * model_height * model_channels,
-                         model_width, model_height, model_channels,
-                         "rgb888_to_float32");
-#endif
+/* #ifdef DEBUG_METER_READER_TFLITE
+
+    DEBUG_ZONE_INFO(zone, crop_width, crop_height, model_width, model_height);
+    DEBUG_FIRST_PIXELS(float_output, model_width * model_height * model_channels, model_channels);
+    DEBUG_CHANNEL_ORDER(float_output, model_width * model_height * model_channels, model_channels);
+	
+	
+    // For the other debug functions, we need to convert float to uint8 for analysis
+    // Create a temporary uint8 buffer for debugging
+    std::vector<uint8_t> debug_buffer(model_width * model_height * model_channels);
+    for (size_t i = 0; i < debug_buffer.size(); i++) {
+        if (normalize) {
+            debug_buffer[i] = static_cast<uint8_t>(float_output[i] * 255.0f);
+        } else {
+            debug_buffer[i] = static_cast<uint8_t>(float_output[i]);
+        }
+    }
+    
+    // Enhanced debugging with the converted buffer
+    debug_analyze_processed_zone(debug_buffer.data(), model_width, model_height, 
+                               model_channels, "final_output_uint8");
+    
+    debug_output_zone_preview(debug_buffer.data(), model_width, model_height,
+                            model_channels, "ascii_preview");
+    
+    // Also debug the original crop before scaling
+    ESP_LOGI(TAG, "Crop zone: [%d,%d,%d,%d] -> %dx%d -> %dx%d", 
+             zone.x1, zone.y1, zone.x2, zone.y2, 
+             crop_width, crop_height,
+             model_width, model_height);
+    
+    // Debug the first few float values directly
+    ESP_LOGI(TAG, "First 5 float values:");
+    for (int i = 0; i < std::min(5, model_width * model_height * model_channels); i++) {
+        ESP_LOGI(TAG, "  [%d]: %.6f", i, float_output[i]);
+    }
+#endif */
     
     return true;
 }
 
-// Update process_rgb888_crop_and_scale_to_uint8:
 bool ImageProcessor::process_rgb888_crop_and_scale_to_uint8(
     const uint8_t* input_data, const CropZone &zone,
     int crop_width, int crop_height,
@@ -810,11 +906,28 @@ bool ImageProcessor::process_rgb888_crop_and_scale_to_uint8(
         }
     }
     
-#ifdef DEBUG_METER_READER_TFLITE
+/* #ifdef DEBUG_METER_READER_TFLITE
+    // Use output_buffer instead of float_output for uint8 processing
+    DEBUG_ZONE_INFO(zone, crop_width, crop_height, model_width, model_height);
+    DEBUG_FIRST_PIXELS(output_buffer, model_width * model_height * model_channels, model_channels);
+    DEBUG_CHANNEL_ORDER(output_buffer, model_width * model_height * model_channels, model_channels);
+             
     debug_log_image(output_buffer, model_width * model_height * model_channels,
                    model_width, model_height, model_channels,
                    "rgb888_to_uint8");
-#endif
+                   
+    // Enhanced debugging
+    debug_analyze_processed_zone(output_buffer, model_width, model_height, 
+                               model_channels, "final_output");
+    
+    debug_output_zone_preview(output_buffer, model_width, model_height,
+                            model_channels, "ascii_preview");
+    
+    // Also debug the original crop before scaling
+    ESP_LOGI(TAG, "Crop zone: [%d,%d,%d,%d] -> %dx%d", 
+             zone.x1, zone.y1, zone.x2, zone.y2, 
+             crop_width, crop_height);
+#endif */
     
     return true;
 }
@@ -1247,6 +1360,185 @@ void ImageProcessor::debug_log_rgb888_image(const uint8_t* data,
                  stage.c_str(), data[0], data[1], data[2]);
     }
 }
+
+
+void ImageProcessor::debug_analyze_processed_zone(const uint8_t* data, 
+                                                 int width, int height, 
+                                                 int channels,
+                                                 const std::string& zone_name) {
+    if (!data || width <= 0 || height <= 0) return;
+    
+    const size_t total_pixels = width * height;
+    ESP_LOGI(TAG, "ZONE_ANALYSIS:%s:%dx%dx%d:normalized=false", 
+             zone_name.c_str(), width, height, channels);
+    
+    // Output ALL pixels for complete image reconstruction
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int pos = (y * width + x) * channels;
+            ESP_LOGI(TAG, "  Pixel[%d,%d]:", x, y);
+            for (int c = 0; c < channels; c++) {
+                ESP_LOGI(TAG, "    Channel %d: %u", c, data[pos + c]);
+            }
+        }
+    }
+    
+    // Calculate statistics
+    uint8_t min_val = 255;
+    uint8_t max_val = 0;
+    uint32_t sum = 0;
+    
+    for (int i = 0; i < width * height * channels; i++) {
+        min_val = std::min(min_val, data[i]);
+        max_val = std::max(max_val, data[i]);
+        sum += data[i];
+    }
+    
+    float mean = static_cast<float>(sum) / (width * height * channels);
+    ESP_LOGI(TAG, "  Stats: min=%u, max=%u, mean=%.6f", min_val, max_val, mean);
+}
+
+// And for the float version:
+void ImageProcessor::debug_analyze_float_zone(const float* data, 
+                                             int width, int height, 
+                                             int channels,
+                                             const std::string& zone_name,
+                                             bool normalized) {
+    if (!data || width <= 0 || height <= 0) return;
+    
+    const size_t total_pixels = width * height;
+    ESP_LOGI(TAG, "ZONE_ANALYSIS:%s:%dx%dx%d:normalized=%s", 
+             zone_name.c_str(), width, height, channels,
+             normalized ? "true" : "false");
+    
+    // Output ALL pixels for complete image reconstruction
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int pos = (y * width + x) * channels;
+            ESP_LOGI(TAG, "  Pixel[%d,%d]:", x, y);
+            for (int c = 0; c < channels; c++) {
+                ESP_LOGI(TAG, "    Channel %d: %.6f", c, data[pos + c]);
+            }
+        }
+    }
+    
+    // Calculate statistics
+    float min_val = std::numeric_limits<float>::max();
+    float max_val = std::numeric_limits<float>::lowest();
+    float sum = 0.0f;
+    
+    for (int i = 0; i < width * height * channels; i++) {
+        min_val = std::min(min_val, data[i]);
+        max_val = std::max(max_val, data[i]);
+        sum += data[i];
+    }
+    
+    float mean = sum / (width * height * channels);
+    ESP_LOGI(TAG, "  Stats: min=%.6f, max=%.6f, mean=%.6f", min_val, max_val, mean);
+    
+    // Check expected range
+    if (normalized) {
+        if (min_val >= 0.0f && max_val <= 1.0f) {
+            ESP_LOGI(TAG, "  -> Values in expected normalized range [0,1]");
+        } else {
+            ESP_LOGI(TAG, "  -> WARNING: Values outside normalized range [0,1]");
+        }
+    } else {
+        if (min_val >= 0.0f && max_val <= 255.0f) {
+            ESP_LOGI(TAG, "  -> Values in expected raw range [0,255]");
+        } else {
+            ESP_LOGI(TAG, "  -> WARNING: Values outside raw range [0,255]");
+        }
+    }
+}
+
+void ImageProcessor::debug_output_zone_preview(const uint8_t* data,
+                                              int width, int height,
+                                              int channels,
+                                              const std::string& zone_name) {
+    // Output a simple ASCII art preview for small zones
+    if (width > 20 || height > 10) {
+        ESP_LOGI(TAG, "PREVIEW_TOO_LARGE:%s", zone_name.c_str());
+        return;
+    }
+    
+    ESP_LOGI(TAG, "PREVIEW_START:%s:%dx%d", zone_name.c_str(), width, height);
+    
+    for (int y = 0; y < height; y++) {
+        std::string line;
+        for (int x = 0; x < width; x++) {
+            int pos = (y * width + x) * channels;
+            uint8_t brightness;
+            
+            if (channels == 1) {
+                brightness = data[pos];
+            } else {
+                // Convert to grayscale for preview
+                brightness = static_cast<uint8_t>(
+                    0.299 * data[pos] + 0.587 * data[pos + 1] + 0.114 * data[pos + 2]
+                );
+            }
+            
+            // Map brightness to ASCII characters
+            const char* chars = " .:-=+*#%@";
+            int char_idx = (brightness * 9) / 255;
+            line += chars[char_idx];
+        }
+        ESP_LOGI(TAG, "%s", line.c_str());
+    }
+    
+    ESP_LOGI(TAG, "PREVIEW_END:%s", zone_name.c_str());
+}
+
+
+
+void ImageProcessor::debug_output_float_preview(const float* data,
+                                               int width, int height,
+                                               int channels,
+                                               const std::string& zone_name,
+                                               bool normalized) {
+    // Output a simple ASCII art preview for small zones
+    if (width > 20 || height > 10) {
+        ESP_LOGI(TAG, "FLOAT_PREVIEW_TOO_LARGE:%s", zone_name.c_str());
+        return;
+    }
+    
+    ESP_LOGI(TAG, "FLOAT_PREVIEW_START:%s:%dx%d:normalized=%s", 
+             zone_name.c_str(), width, height,
+             normalized ? "true" : "false");
+    
+    for (int y = 0; y < height; y++) {
+        std::string line;
+        for (int x = 0; x < width; x++) {
+            int pos = (y * width + x) * channels;
+            float brightness;
+            
+            if (channels == 1) {
+                brightness = data[pos];
+            } else {
+                // Convert to grayscale for preview
+                brightness = 0.299f * data[pos] + 0.587f * data[pos + 1] + 0.114f * data[pos + 2];
+            }
+            
+            // Convert to 0-255 range for ASCII mapping
+            uint8_t ascii_val;
+            if (normalized) {
+                ascii_val = static_cast<uint8_t>(brightness * 255.0f);
+            } else {
+                ascii_val = static_cast<uint8_t>(brightness);
+            }
+            
+            // Map brightness to ASCII characters
+            const char* chars = " .:-=+*#%@";
+            int char_idx = (ascii_val * 9) / 255;
+            line += chars[char_idx];
+        }
+        ESP_LOGI(TAG, "%s", line.c_str());
+    }
+    
+    ESP_LOGI(TAG, "FLOAT_PREVIEW_END:%s", zone_name.c_str());
+}
+
 #endif
 
 /**
