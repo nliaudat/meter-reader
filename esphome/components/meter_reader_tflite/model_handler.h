@@ -7,6 +7,11 @@
 #include <string>
 #include <vector>
 
+// #ifdef DEBUG_METER_READER_TFLITE
+#include <esp_task_wdt.h>
+// #endif
+
+
 namespace esphome {
 namespace meter_reader_tflite {
 
@@ -26,6 +31,15 @@ struct ProcessedOutput {
   float value;
   float confidence;
 };
+
+// #ifdef DEBUG_METER_READER_TFLITE
+struct ConfigTestResult {
+    ModelConfig config;
+    float avg_confidence;
+    std::vector<float> zone_confidences;
+    std::vector<float> zone_values;
+};
+// #endif
 
 constexpr size_t MAX_OPERATORS = 30;
 
@@ -105,11 +119,14 @@ class ModelHandler {
   void debug_model_architecture() const;
   
 // #ifdef DEBUG_METER_READER_TFLITE
-  void debug_test_parameters(const uint8_t* input_data, size_t input_size);
-  void set_debug_mode(bool debug) { debug_mode_ = debug; }
-  std::vector<ModelConfig> generate_debug_configs() const;
-  void test_configuration(const ModelConfig& config, const uint8_t* input_data, size_t input_size);
-  bool debug_mode_ = false;
+  void debug_test_parameters(const std::vector<std::vector<uint8_t>>& zone_data);
+  void debug_test_parameters(unsigned char*, size_t&);
+  void test_configuration(const ModelConfig& config, 
+                         const std::vector<std::vector<uint8_t>>& zone_data,
+                         std::vector<ConfigTestResult>& results);
+  void debug_test_with_pattern();
+  std::vector<ModelConfig> generate_debug_configs() const; 
+  void feed_watchdog();
 // #endif
 
  protected:

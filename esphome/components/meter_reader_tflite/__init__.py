@@ -176,11 +176,11 @@ async def to_code(config):
             )
         )
         
-        cg.add(
-            cg.RawStatement(
-                f"{config[CONF_ID]}->set_debug_image({debug_image_id}, sizeof({debug_image_id}));"
-            )
-        )
+        # cg.add(
+            # cg.RawStatement(
+                # f"{config[CONF_ID]}->set_debug_image({debug_image_id}, sizeof({debug_image_id}));"
+            # )
+        # )
         
         cg.add(
             var.set_debug_image(

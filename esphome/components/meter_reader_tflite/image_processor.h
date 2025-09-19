@@ -12,7 +12,7 @@
 #include "crop_zones.h"
 #include "model_handler.h"
 #include "esp_heap_caps.h"
-#include "esp_log.h"
+// #include "esp_log.h"
 #include <memory>
 #include <vector>
 #include <string>
@@ -328,6 +328,31 @@ class ImageProcessor {
                               const std::string& stage);
     void debug_log_float_stats(const float* data, size_t count,
                               const std::string& stage);
+							  
+	void debug_analyze_processed_zone(const uint8_t* data, 
+                                                 int width, int height, 
+                                                 int channels,
+                                                 const std::string& zone_name);
+												 
+	void debug_output_zone_preview(const uint8_t* data,
+                                              int width, int height,
+                                              int channels,
+                                              const std::string& zone_name);
+											  
+	void debug_analyze_float_zone(const float* data, 
+                                             int width, int height, 
+                                             int channels,
+                                             const std::string& zone_name,
+                                             bool normalized);
+											  
+	void debug_output_float_preview(const float* data,
+                                               int width, int height,
+                                               int channels,
+                                               const std::string& zone_name,
+                                               bool normalized);
+											  
+
+	
 #endif
 	
 	
