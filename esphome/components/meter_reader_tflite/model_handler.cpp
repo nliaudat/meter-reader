@@ -32,7 +32,7 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
   }
 
 #ifdef DEBUG_METER_READER_TFLITE
-  static tflite::MicroMutableOpResolver<10> resolver;
+  static tflite::MicroMutableOpResolver<11> resolver;
 
   TfLiteStatus status = kTfLiteOk;
   if (resolver.AddQuantize() != kTfLiteOk) status = kTfLiteError;
@@ -45,6 +45,8 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
   if (resolver.AddDequantize() != kTfLiteOk) status = kTfLiteError;
   if (resolver.AddRelu() != kTfLiteOk) status = kTfLiteError;
   if (resolver.AddSoftmax() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddLeakyRelu() != kTfLiteOk) status = kTfLiteError;
+  
 
   if (status != kTfLiteOk) {
     ESP_LOGE(TAG, "Failed to register one or more operations");
@@ -56,6 +58,14 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
 #else
   // Your existing dynamic registration
   static tflite::MicroMutableOpResolver<MAX_OPERATORS> resolver;
+  
+  ESP_LOGD(TAG, "Operator codes found in model:");
+	for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
+	  const auto *op_code = tflite_model_->operator_codes()->Get(i);
+	  ESP_LOGD(TAG, "  [%d]: %d (%s)", i, op_code->builtin_code(),
+			   tflite::EnumNameBuiltinOperator(op_code->builtin_code()));
+	}
+  
   std::set<tflite::BuiltinOperator> required_ops;
   
   for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
@@ -249,6 +259,12 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     ESP_LOGE(TAG, "Invalid number of output classes: %d", num_classes);
     return result;
   }
+  
+  ESP_LOGD(TAG, "Raw model outputs before any processing:");
+	for (int i = 0; i < num_classes; i++) {
+		ESP_LOGD(TAG, "  Class %d: %.6f", i, output_data[i]);
+	}
+
 
   // Debug: log output range
   float min_val = *std::min_element(output_data, output_data + num_classes);
@@ -377,6 +393,55 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     result.value = static_cast<float>(softmax_max_idx) / config_.scale_factor;
     result.confidence = softmax_max_val;
     ESP_LOGD(TAG, "Experimental scale - Value: %.1f, Confidence: %.6f", 
+             result.value, result.confidence);
+  }
+  else if (config_.output_processing == "logits_jomjol") {
+    // Exact replication of GetOutClassification() behavior
+    // Simply find the maximum value and return its index (scaled by 10)
+    result.value = static_cast<float>(max_idx) / config_.scale_factor;
+    
+    // For confidence, use the raw maximum value
+    // Original C++ code didn't calculate confidence, so we use raw value
+    result.confidence = max_val_output;
+    
+    ESP_LOGD(TAG, "Logits jomjol - Value: %.1f, Raw Max: %.6f", 
+             result.value, max_val_output);
+  }
+  else if (config_.output_processing == "softmax_jomjol") {
+    // Exact replication of Python script behavior
+    // Always apply softmax first, then find max probability
+    float sum = 0.0f;
+    std::vector<float> exp_values(num_classes);
+    
+    // Subtract max for numerical stability (like TensorFlow does)
+    float max_val = *std::max_element(output_data, output_data + num_classes);
+    for (int i = 0; i < num_classes; i++) {
+        exp_values[i] = expf(output_data[i] - max_val);
+        sum += exp_values[i];
+    }
+    
+    // Find the class with highest probability after softmax
+    int max_idx = 0;
+    float max_prob = 0.0f;
+    for (int i = 0; i < num_classes; i++) {
+        float prob = exp_values[i] / sum;
+        if (prob > max_prob) {
+            max_prob = prob;
+            max_idx = i;
+        }
+    }
+    
+    // Apply scaling (like Python script's default case)
+    result.value = static_cast<float>(max_idx) / config_.scale_factor;
+    result.confidence = max_prob;
+	
+	ESP_LOGD(TAG, "Softmax probabilities:");
+	for (int i = 0; i < num_classes; i++) {
+		float prob = exp_values[i] / sum;
+		ESP_LOGD(TAG, "  Class %d: %.6f", i, prob);
+	}
+    
+    ESP_LOGD(TAG, "Softmax jomjol - Value: %.1f, Confidence: %.6f", 
              result.value, result.confidence);
   }
   else {
@@ -697,8 +762,8 @@ void ModelHandler::test_configuration(const ModelConfig& config,
     // Test this configuration on all zones
     for (size_t zone_idx = 0; zone_idx < zone_data.size(); zone_idx++) {
         const auto& zone_buffer = zone_data[zone_idx];
-		
-		// Reset watchdog every few zones to prevent timeout
+        
+        // Reset watchdog every few zones to prevent timeout
         if (zone_idx % 3 == 0) {
             feed_watchdog();
         }
@@ -737,8 +802,8 @@ void ModelHandler::debug_test_parameters(const std::vector<std::vector<uint8_t>>
     ESP_LOGI(TAG, "=== DEBUG PARAMETER TESTING ===");
     ESP_LOGI(TAG, "Testing %d zones with %zu configurations", 
              zone_data.size(), generate_debug_configs().size());
-			 
-	// Reset watchdog at the start
+             
+    // Reset watchdog at the start
     feed_watchdog();
     
     std::vector<ConfigTestResult> all_results;
@@ -747,7 +812,7 @@ void ModelHandler::debug_test_parameters(const std::vector<std::vector<uint8_t>>
     for (size_t i = 0; i < configs.size(); i++) {
         ESP_LOGI(TAG, "--- Test %zu/%zu ---", i + 1, configs.size());
         test_configuration(configs[i], zone_data, all_results);
-		
+        
         // Reset watchdog every few configurations
         if (i % 5 == 0) {
             feed_watchdog();

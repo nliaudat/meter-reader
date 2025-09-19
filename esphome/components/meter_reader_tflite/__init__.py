@@ -22,6 +22,7 @@ CONF_CONFIDENCE_THRESHOLD = 'confidence_threshold'
 CONF_RAW_DATA_ID = 'raw_data_id'
 CONF_DEBUG = 'debug'
 CONF_DEBUG_IMAGE = 'debug_image'
+CONF_DEBUG_OUT_PROCESSED_IMAGE_TO_SERIAL = 'debug_image_out_serial'
 # CONF_DEBUG_DURATION = 'debug_duration' // can be enabled in  meter_reader_tflite.h #define DEBUG_DURATION
 # CONF_DEBUG_IMAGE_PATH = 'debug_image_path'
 CONF_SENSOR = 'meter_reader_value_sensor' 
@@ -62,6 +63,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
     cv.Optional(CONF_DEBUG, default=False): cv.boolean, 
     cv.Optional(CONF_DEBUG_IMAGE, default=False): cv.boolean, 
+    cv.Optional(CONF_DEBUG_OUT_PROCESSED_IMAGE_TO_SERIAL, default=False): cv.boolean,
     cv.Optional('crop_zones_global'): cv.use_id(globals.GlobalsComponent),
 }).extend(cv.polling_component_schema('60s'))
 
@@ -195,6 +197,10 @@ async def to_code(config):
     if config.get(CONF_DEBUG, False):
         cg.add_define("DEBUG_METER_READER_TFLITE")
         cg.add(var.set_debug_mode(True))
+        
+    if config.get(CONF_DEBUG_OUT_PROCESSED_IMAGE_TO_SERIAL, False):
+        cg.add_define("DEBUG_OUT_PROCESSED_IMAGE_TO_SERIAL")
+
         
     if 'crop_zones_global' in config:
         crop_global = await cg.get_variable(config['crop_zones_global'])

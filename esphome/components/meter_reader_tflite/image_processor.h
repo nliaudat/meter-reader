@@ -12,7 +12,7 @@
 #include "crop_zones.h"
 #include "model_handler.h"
 #include "esp_heap_caps.h"
-// #include "esp_log.h"
+#include "esp_log.h"
 #include <memory>
 #include <vector>
 #include <string>
@@ -235,7 +235,7 @@ class ImageProcessor {
     bool validate_buffer_size(size_t required, size_t available, const char* context) const;
     
     const char* jpeg_error_to_string(jpeg_error_t error) const;
-	
+    
     // RGB888 processing functions
     bool process_rgb888_crop_and_scale_to_float32(
         const uint8_t* input_data, const CropZone &zone,
@@ -289,8 +289,8 @@ class ImageProcessor {
     int bytes_per_pixel_;          ///< Bytes per pixel for current format
     ProcessingStats stats_;        ///< Processing statistics
     mutable std::mutex processing_mutex_; ///< Thread safety mutex
-	
-	
+    
+    
     /**
      * @brief Arranges RGB channels according to the configured input order for float output.
      * @param output Pointer to output buffer
@@ -313,7 +313,7 @@ class ImageProcessor {
      */
     void arrange_channels(uint8_t* output, uint8_t r, uint8_t g, uint8_t b, 
                          int output_channels) const;
-	
+    
 #ifdef DEBUG_METER_READER_TFLITE
     void debug_log_image(const uint8_t* data, size_t size, 
                         int width, int height, int channels,
@@ -328,34 +328,34 @@ class ImageProcessor {
                               const std::string& stage);
     void debug_log_float_stats(const float* data, size_t count,
                               const std::string& stage);
-							  
-	void debug_analyze_processed_zone(const uint8_t* data, 
+                              
+    void debug_analyze_processed_zone(const uint8_t* data, 
                                                  int width, int height, 
                                                  int channels,
                                                  const std::string& zone_name);
-												 
-	void debug_output_zone_preview(const uint8_t* data,
+                                                 
+    void debug_output_zone_preview(const uint8_t* data,
                                               int width, int height,
                                               int channels,
                                               const std::string& zone_name);
-											  
-	void debug_analyze_float_zone(const float* data, 
+                                              
+    void debug_analyze_float_zone(const float* data, 
                                              int width, int height, 
                                              int channels,
                                              const std::string& zone_name,
                                              bool normalized);
-											  
-	void debug_output_float_preview(const float* data,
+                                              
+    void debug_output_float_preview(const float* data,
                                                int width, int height,
                                                int channels,
                                                const std::string& zone_name,
                                                bool normalized);
-											  
+                                              
 
-	
+    
 #endif
-	
-	
+    
+    
 };
 
 }  // namespace meter_reader_tflite

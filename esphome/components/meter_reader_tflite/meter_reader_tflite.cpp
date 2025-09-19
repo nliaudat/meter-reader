@@ -32,9 +32,9 @@ void MeterReaderTFLite::setup() {
         mark_failed();
         return;
     }
-	
-	// Apply crop zones from global variable if available
-	crop_zone_handler_.apply_global_zones();
+    
+    // Apply crop zones from global variable if available
+    crop_zone_handler_.apply_global_zones();
 
     // Setup camera callback with frame buffer management
     camera_->add_image_callback([this](std::shared_ptr<camera::CameraImage> image) {
@@ -71,7 +71,7 @@ void MeterReaderTFLite::setup() {
             
         ESP_LOGI(TAG, "Meter Reader TFLite setup complete");
         this->print_debug_info();
-		
+        
         // Process debug image AFTER ImageProcessor is initialized
         #ifdef DEBUG_METER_READER_TFLITE
         if (debug_image_) {
@@ -79,18 +79,18 @@ void MeterReaderTFLite::setup() {
             this->set_timeout(1000, [this]() { // Small delay to ensure everything is ready
                 this->test_with_debug_image();
             });
-			
-		//check all configs
-		//model_handler_.debug_test_parameters(debug_image_->get_data_buffer(), debug_image_->get_data_length());
-			
+            
+        //check all configs
+        //model_handler_.debug_test_parameters(debug_image_->get_data_buffer(), debug_image_->get_data_length());
+            
 
         } else {
-			ESP_LOGE(TAG, "No debug image set to process.");
-		}
-		
+            ESP_LOGE(TAG, "No debug image set to process.");
+        }
+        
         #endif
-		
-		
+        
+        
     });
 }
 
@@ -161,8 +161,8 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
         DURATION_END("process_full_image (invalid frame)");
         return;
     }
-	
-	// Check if ImageProcessor is ready
+    
+    // Check if ImageProcessor is ready
     if (!image_processor_) {
         ESP_LOGE(TAG, "ImageProcessor not initialized");
         DURATION_END("process_full_image (no processor)");
@@ -458,7 +458,7 @@ void MeterReaderTFLite::test_with_debug_image() {
         
         ESP_LOGI(TAG, "Processing debug image with static crop zones...");
         process_full_image(debug_image_);
-		
+        
     } else {
         ESP_LOGE(TAG, "No debug image set to process.");
     }
