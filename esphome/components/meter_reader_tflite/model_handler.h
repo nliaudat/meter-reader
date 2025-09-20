@@ -14,6 +14,11 @@
 
 namespace esphome {
 namespace meter_reader_tflite {
+    
+    
+// for model_data.h (not progmem way)
+// extern const uint8_t model_data[];
+// extern const unsigned int model_data_len;
 
 struct ModelConfig {
   std::string description;

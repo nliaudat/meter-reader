@@ -11,6 +11,10 @@
 #include <iomanip>
 #endif
 
+// test with direct model loading (no progmem)
+// #include "model_data.h"
+
+
 namespace esphome {
 namespace meter_reader_tflite {
 
@@ -19,19 +23,98 @@ static const char *const TAG = "ModelHandler";
 bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
                             uint8_t* tensor_arena, size_t tensor_arena_size,
                             const ModelConfig &config) {
+// bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
+                            // uint8_t* tensor_arena, size_t tensor_arena_size,
+                            // const ModelConfig &config) {
+                                
+                                
   ESP_LOGD(TAG, "Loading model with config:");
   ESP_LOGD(TAG, "  Description: %s", config.description.c_str());
   ESP_LOGD(TAG, "  Output processing: %s", config.output_processing.c_str());
+  ESP_LOGD(TAG, "Model data validation:");
+  ESP_LOGD(TAG, "  Model data pointer: %p", model_data);
+  ESP_LOGD(TAG, "  Model data size: %zu bytes", model_size);
+  // ESP_LOGD(TAG, "  Expected size from header: %u bytes", model_data_len);
+  
+  if (model_data == nullptr) {
+    ESP_LOGE(TAG, "Model data pointer is NULL!");
+    return false;
+  }
+  
+  if (model_size == 0) {
+    ESP_LOGE(TAG, "Model data size is 0!");
+    return false;
+  }
+  
+  // if (model_size != model_data_len) {
+    // ESP_LOGE(TAG, "Size mismatch! Passed size: %zu, Header size: %u", 
+             // model_size, model_data_len);
+    // return false;
+  // }
+  
+  // Check TFLite magic number
+  if (model_size >= 8) {
+    ESP_LOGI(TAG, "First 8 bytes: %02X %02X %02X %02X %02X %02X %02X %02X",
+             model_data[0], model_data[1], model_data[2], model_data[3],
+             model_data[4], model_data[5], model_data[6], model_data[7]);
+    
+    // TFLite magic number should be: 1C 00 00 00 54 46 4C 33
+    if (model_data[0] == 0x1C && model_data[1] == 0x00 && 
+        model_data[2] == 0x00 && model_data[3] == 0x00 &&
+        model_data[4] == 0x54 && model_data[5] == 0x46 &&
+        model_data[6] == 0x4C && model_data[7] == 0x33) {
+      ESP_LOGI(TAG, "✓ Valid TFLite magic number found");
+    } else {
+      ESP_LOGE(TAG, "✗ Invalid TFLite magic number");
+      return false;
+    }
+  }
   
   config_ = config;
   
-  tflite_model_ = tflite::GetModel(model_data);
+    // For PROGMEM data, we need to handle it specially
+    ESP_LOGI(TAG, "Loading model from PROGMEM (%zu bytes)", model_size);
+    
+    // Check if we need to copy from PROGMEM to RAM (if tflite can't handle PROGMEM directly)
+    // Some TFLite implementations might require RAM-based data
+    
+    // Option 1: Try direct access (if TFLite supports PROGMEM)
+    tflite_model_ = tflite::GetModel(model_data);
+    
+    // Option 2: If that fails, copy to RAM first
+    if (tflite_model_ == nullptr) {
+        ESP_LOGW(TAG, "Direct PROGMEM access failed, copying to RAM");
+        std::vector<uint8_t> ram_model(model_data, model_data + model_size);
+        tflite_model_ = tflite::GetModel(ram_model.data());
+    }
+  
+  if (tflite_model_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to parse model - invalid data");
+    
+    // Additional debug: check if memory is accessible
+    ESP_LOGI(TAG, "Testing memory access...");
+    uint8_t test_sum = 0;
+    for (size_t i = 0; i < std::min((size_t)100, model_size); i++) {
+      test_sum += model_data[i];
+    }
+    ESP_LOGI(TAG, "Memory access test sum: %u", test_sum);
+    
+    return false;
+  }
+
   if (tflite_model_->version() != TFLITE_SCHEMA_VERSION) {
     ESP_LOGE(TAG, "Model schema version mismatch");
     return false;
   }
 
 #ifdef DEBUG_METER_READER_TFLITE
+
+    // Check basic model structure
+    auto* subgraph = tflite_model_->subgraphs()->Get(0);
+    ESP_LOGD(TAG, "Model subgraph tensors: %d", subgraph->tensors()->size());
+    ESP_LOGD(TAG, "Model subgraph operators: %d", subgraph->operators()->size());
+
+
   static tflite::MicroMutableOpResolver<11> resolver;
 
   TfLiteStatus status = kTfLiteOk;
@@ -514,7 +597,7 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
   else if (input->type == kTfLiteFloat32) {
     
     float* dst = input->data.f;
-    if (config_.normalize) {
+/*     if (config_.normalize) {
       // Normalize to [0,1]
       for (size_t i = 0; i < input_size; i++) {
         dst[i] = static_cast<float>(input_data[i]) / 255.0f;
@@ -534,7 +617,20 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
       for (int i = 0; i < 5 && i < input_size; i++) {
         ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
       }
+    } */
+    
+    
+    // Input data is already normalized by image processor, just copy it
+    for (size_t i = 0; i < input_size; i++) {
+      dst[i] = static_cast<float>(input_data[i]);
     }
+
+    // Debug logging
+    ESP_LOGD(TAG, "First 5 float32 inputs:");
+    for (int i = 0; i < 5 && i < input_size; i++) {
+      ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
+    }
+
     
     // Add detailed input statistics
         ESP_LOGD(TAG, "Input tensor statistics (float32, 0-255 range):");

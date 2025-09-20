@@ -114,6 +114,7 @@ async def to_code(config):
         sens = await sensor.new_sensor(config[CONF_SENSOR])
         cg.add(var.set_value_sensor(sens))
     
+    ## test loading model with h file cause it can be corrupted by progmem conversion
     model_path = config[CONF_MODEL]
     
     # Read the model file as binary data
@@ -125,7 +126,6 @@ async def to_code(config):
     prog_arr = cg.progmem_array(config[CONF_RAW_DATA_ID], rhs)
     
     cg.add(var.set_model(prog_arr, len(model_data)))
-    # cg.add(var.set_input_size(config[CONF_MODEL_INPUT_WIDTH], config[CONF_MODEL_INPUT_HEIGHT]))
     cg.add(var.set_confidence_threshold(config[CONF_CONFIDENCE_THRESHOLD]))
     
     # The config value is already an integer thanks to the schema validator

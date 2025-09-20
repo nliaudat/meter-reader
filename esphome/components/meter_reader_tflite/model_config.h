@@ -11,7 +11,7 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
     {"class100-0180", 
         ModelConfig{
             .description = "dig-class100-0180",
-            .output_processing = "softmax_jomjol", //"softmax_scale10",// "logits_jomjol", //model trained with from_logits=True
+            .output_processing = "softmax_scale10", //"softmax_jomjol", //"softmax_scale10",// "logits_jomjol", //model trained with from_logits=True
             .scale_factor = 10.0f, // For 100-class models (0.0-9.9)
             .input_type = "float32", //"uint8", // Model is float32, not quantized!
             .input_channels = 3,
