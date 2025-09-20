@@ -52,23 +52,27 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
     // return false;
   // }
   
-  // Check TFLite magic number
-  if (model_size >= 8) {
-    ESP_LOGI(TAG, "First 8 bytes: %02X %02X %02X %02X %02X %02X %02X %02X",
-             model_data[0], model_data[1], model_data[2], model_data[3],
-             model_data[4], model_data[5], model_data[6], model_data[7]);
-    
-    // TFLite magic number should be: 1C 00 00 00 54 46 4C 33
-    if (model_data[0] == 0x1C && model_data[1] == 0x00 && 
-        model_data[2] == 0x00 && model_data[3] == 0x00 &&
-        model_data[4] == 0x54 && model_data[5] == 0x46 &&
-        model_data[6] == 0x4C && model_data[7] == 0x33) {
-      ESP_LOGI(TAG, "✓ Valid TFLite magic number found");
-    } else {
-      ESP_LOGE(TAG, "✗ Invalid TFLite magic number");
-      return false;
+  
+#ifdef DEBUG_METER_READER_TFLITE
+    // Check TFLite magic number
+    if (model_size >= 8) {
+      ESP_LOGI(TAG, "First 8 bytes: %02X %02X %02X %02X %02X %02X %02X %02X",
+               model_data[0], model_data[1], model_data[2], model_data[3],
+               model_data[4], model_data[5], model_data[6], model_data[7]);
+      
+      // TFLite magic number should be: XX 00 00 00 54 46 4C 33
+      // The first byte can vary (0x1C for older versions, 0x20 for newer)
+      // but the last 4 bytes should always be 'T','F','L','3' in ASCII
+      if (model_data[1] == 0x00 && model_data[2] == 0x00 && model_data[3] == 0x00 &&
+          model_data[4] == 0x54 && model_data[5] == 0x46 &&
+          model_data[6] == 0x4C && model_data[7] == 0x33) {
+        ESP_LOGI(TAG, "Valid TFLite magic number found (version byte: 0x%02X)", model_data[0]);
+      } else {
+        ESP_LOGE(TAG, "Invalid TFLite magic number");
+        return false;
+      }
     }
-  }
+#endif
   
   config_ = config;
   
@@ -208,7 +212,10 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
 
   ESP_LOGI(TAG, "Model loaded successfully");
   
-  debug_model_architecture(); 
+#ifdef DEBUG_METER_READER_TFLITE
+  debug_model_architecture();   
+  verify_model_crc(model_data, model_size);
+#endif  
   
   return true;
 }
@@ -343,16 +350,19 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     return result;
   }
   
-  ESP_LOGD(TAG, "Raw model outputs before any processing:");
-	for (int i = 0; i < num_classes; i++) {
-		ESP_LOGD(TAG, "  Class %d: %.6f", i, output_data[i]);
-	}
+#ifdef DEBUG_METER_READER_TFLITE
+  //// RAW model output
+  // ESP_LOGD(TAG, "Raw model outputs before any processing:");
+	// for (int i = 0; i < num_classes; i++) {
+		// ESP_LOGD(TAG, "  Class %d: %.6f", i, output_data[i]);
+	// }
 
 
   // Debug: log output range
   float min_val = *std::min_element(output_data, output_data + num_classes);
   float max_val = *std::max_element(output_data, output_data + num_classes);
   ESP_LOGD(TAG, "Output range: min=%.2f, max=%.2f", min_val, max_val);
+#endif
 
   // Find the max value and its index
   int max_idx = 0;
@@ -706,11 +716,13 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         model_output_ = output->data.f;
     }
 
-    // Log raw output values for debugging
-    ESP_LOGD(TAG, "Raw output values (%d classes):", output_size_);
-    for (int i = 0; i < output_size_ && i < 15; i++) {
-        ESP_LOGD(TAG, "  Output[%d]: %.6f", i, model_output_[i]);
-    }
+#ifdef DEBUG_METER_READER_TFLITE
+    //// Log raw output values for debugging
+    // ESP_LOGD(TAG, "Raw output values (%d classes):", output_size_);
+    // for (int i = 0; i < output_size_ && i < 15; i++) {
+        // ESP_LOGD(TAG, "  Output[%d]: %.6f", i, model_output_[i]);
+    // }
+#endif
     
     // Process the output to get both value and confidence
     processed_output_ = process_output(model_output_);
@@ -953,7 +965,43 @@ void ModelHandler::feed_watchdog() {
     ESP_LOGD(TAG, "Watchdog fed");
 }
 
+
+void ModelHandler::verify_model_crc(const uint8_t* model_data, size_t model_size) {
+    uint32_t crc = crc32_runtime(model_data, model_size);
+    ESP_LOGI(TAG, "Model checksum (runtime): 0x%08" PRIX32, crc);
+    ESP_LOGI(TAG, "Model checksum (compile): 0x%08X", MODEL_CRC32);
+
+    if (crc == static_cast<uint32_t>(MODEL_CRC32)) {
+        ESP_LOGI(TAG, "Model integrity verified");
+    } else {
+        ESP_LOGE(TAG, "Model integrity check failed!");
+    }
+}
+
+
+uint32_t crc32_runtime(const uint8_t* data, size_t length) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < length; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            if (crc & 1)
+                crc = (crc >> 1) ^ 0xEDB88320;
+            else
+                crc >>= 1;
+        }
+    }
+    return crc ^ 0xFFFFFFFF;
+}
+
 #endif
 
 }  // namespace meter_reader_tflite
+
+
+// #ifdef DEBUG_METER_READER_TFLITE
+    // namespace {
+
+    // } // anonymous namespace
+// #endif
+
 }  // namespace esphome

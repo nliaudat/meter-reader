@@ -9,7 +9,12 @@
 
 // #ifdef DEBUG_METER_READER_TFLITE
 #include <esp_task_wdt.h>
+#include <cstdint>   // for crc check uint32_t
+#include <inttypes.h> // for crc check PRIu32 formatting
 // #endif
+
+
+
 
 
 namespace esphome {
@@ -19,6 +24,8 @@ namespace meter_reader_tflite {
 // for model_data.h (not progmem way)
 // extern const uint8_t model_data[];
 // extern const unsigned int model_data_len;
+
+uint32_t crc32_runtime(const uint8_t* data, size_t length);
 
 struct ModelConfig {
   std::string description;
@@ -44,6 +51,8 @@ struct ConfigTestResult {
     std::vector<float> zone_confidences;
     std::vector<float> zone_values;
 };
+
+
 // #endif
 
 constexpr size_t MAX_OPERATORS = 30;
@@ -132,6 +141,8 @@ class ModelHandler {
   void debug_test_with_pattern();
   std::vector<ModelConfig> generate_debug_configs() const; 
   void feed_watchdog();
+  void verify_model_crc(const uint8_t* model_data, size_t model_size);
+  // uint32_t crc32_runtime(const uint8_t* data, size_t length);
 // #endif
 
  protected:

@@ -2,6 +2,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 import os
+import zlib # for crc model check
 from esphome.const import CONF_ID, CONF_MODEL, CONF_SENSOR
 from esphome.core import CORE, HexInt
 #from esphome.components import esp32, camera, sensor
@@ -72,8 +73,14 @@ async def to_code(config):
     # Add IDF component and build flags
     esp32.add_idf_component(
         name="espressif/esp-tflite-micro",
-        ref="1.3.3~1"
+        ref="*"  # Gets the latest version available ref="~1.3.4"
     )
+    
+    esp32.add_idf_component(
+        name="espressif/esp-nn",
+        ref="*" 
+    )
+    
     
     
     pixel_format = CORE.config["substitutions"].get("camera_pixel_format", "RGB888")
@@ -97,11 +104,30 @@ async def to_code(config):
         # ref="3.1.5"  # image preprocessor : https://github.com/espressif/esp-dl/blob/master/esp-dl/vision/image/dl_image_preprocessor.cpp
     # )
         
+
     cg.add_build_flag("-DTF_LITE_STATIC_MEMORY")
     cg.add_build_flag("-DTF_LITE_DISABLE_X86_NEON")
     cg.add_build_flag("-DESP_NN")
-    # cg.add_build_flag("-DUSE_ESP_DL")
     cg.add_build_flag("-DUSE_ESP32_CAMERA_CONV")
+    
+    # Enable esp-nn optimizations
+    cg.add_build_flag("-DOPTIMIZED_KERNEL=esp_nn")
+    # cg.add_build_flag("-DUSE_ESP_NN_O1")
+    # cg.add_build_flag("-DUSE_ESP_NN_O2")
+    
+    # Force reference kernels (debug without esp-nn)
+    # cg.add_build_flag("-DOPTIMIZED_KERNEL=reference")
+    
+    # cg.add_build_flag("-DUSE_ESP_DL")
+    
+    # Enable higher precision modes in esp-nn
+    # cg.add_build_flag("-DESP_NN_USE_HIGHER_PRECISION")
+    # cg.add_build_flag("-DESP_NN_DISABLE_APPROXIMATIONS")
+    
+    ## debug only
+    # cg.add_build_flag("-DTF_LITE_SHOW_OPERATIONS")
+    # cg.add_build_flag("-DTF_LITE_ENABLE_DEBUG_OUTPUT")
+
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -114,12 +140,16 @@ async def to_code(config):
         sens = await sensor.new_sensor(config[CONF_SENSOR])
         cg.add(var.set_value_sensor(sens))
     
-    ## test loading model with h file cause it can be corrupted by progmem conversion
     model_path = config[CONF_MODEL]
     
     # Read the model file as binary data
     with open(model_path, "rb") as f:
         model_data = f.read()
+        
+    # Compute CRC32
+    crc32_val = zlib.crc32(model_data) & 0xFFFFFFFF
+    # Emit define
+    cg.add_define("MODEL_CRC32", HexInt(crc32_val)) 
     
     # Create a progmem array for the model data
     rhs = [HexInt(x) for x in model_data]
