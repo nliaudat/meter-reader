@@ -147,11 +147,11 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
   static tflite::MicroMutableOpResolver<MAX_OPERATORS> resolver;
   
   ESP_LOGD(TAG, "Operator codes found in model:");
-	for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
-	  const auto *op_code = tflite_model_->operator_codes()->Get(i);
-	  ESP_LOGD(TAG, "  [%d]: %d (%s)", i, op_code->builtin_code(),
-			   tflite::EnumNameBuiltinOperator(op_code->builtin_code()));
-	}
+    for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
+      const auto *op_code = tflite_model_->operator_codes()->Get(i);
+      ESP_LOGD(TAG, "  [%d]: %d (%s)", i, op_code->builtin_code(),
+               tflite::EnumNameBuiltinOperator(op_code->builtin_code()));
+    }
   
   std::set<tflite::BuiltinOperator> required_ops;
   
@@ -353,9 +353,9 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
 #ifdef DEBUG_METER_READER_TFLITE
   //// RAW model output
   // ESP_LOGD(TAG, "Raw model outputs before any processing:");
-	// for (int i = 0; i < num_classes; i++) {
-		// ESP_LOGD(TAG, "  Class %d: %.6f", i, output_data[i]);
-	// }
+    // for (int i = 0; i < num_classes; i++) {
+        // ESP_LOGD(TAG, "  Class %d: %.6f", i, output_data[i]);
+    // }
 
 
   // Debug: log output range
@@ -527,12 +527,12 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     // Apply scaling (like Python script's default case)
     result.value = static_cast<float>(max_idx) / config_.scale_factor;
     result.confidence = max_prob;
-	
-	ESP_LOGD(TAG, "Softmax probabilities:");
-	for (int i = 0; i < num_classes; i++) {
-		float prob = exp_values[i] / sum;
-		ESP_LOGD(TAG, "  Class %d: %.6f", i, prob);
-	}
+    
+    ESP_LOGD(TAG, "Softmax probabilities:");
+    for (int i = 0; i < num_classes; i++) {
+        float prob = exp_values[i] / sum;
+        ESP_LOGD(TAG, "  Class %d: %.6f", i, prob);
+    }
     
     ESP_LOGD(TAG, "Softmax jomjol - Value: %.1f, Confidence: %.6f", 
              result.value, result.confidence);
@@ -631,9 +631,12 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
     
     
     // Input data is already normalized by image processor, just copy it
-    for (size_t i = 0; i < input_size; i++) {
-      dst[i] = static_cast<float>(input_data[i]);
-    }
+    // for (size_t i = 0; i < input_size; i++) {
+      // dst[i] = static_cast<float>(input_data[i]);
+    // }
+    
+    // The loop is replaced with memcpy to fix a buffer overflow.
+    memcpy(dst, input_data, input_size);
 
     // Debug logging
     ESP_LOGD(TAG, "First 5 float32 inputs:");
