@@ -73,12 +73,12 @@ async def to_code(config):
     # Add IDF component and build flags
     esp32.add_idf_component(
         name="espressif/esp-tflite-micro",
-        ref="*"  # Gets the latest version available ref="~1.3.4"
+        ref="~1.3.4" #ref="*"  # Gets the latest version available ref="~1.3.4"
     )
     
     esp32.add_idf_component(
         name="espressif/esp-nn",
-        ref="*" 
+        ref="~1.1.2" #ref="*" 
     )
     
     

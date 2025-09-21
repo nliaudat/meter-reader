@@ -528,26 +528,26 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
 #endif */
 
 #ifdef DEBUG_METER_READER_TFLITE
-	#ifdef DEBUG_OUT_PROCESSED_IMAGE_TO_SERIAL
-		// Add ZONE_ANALYSIS debug output here
-		if (input_type == kTfLiteFloat32) {
-			debug_analyze_float_zone(reinterpret_cast<float*>(output_buffer), 
-									model_width, model_height, model_channels,
-									"jpeg_final_output", 
-									model_handler_->get_config().normalize);
-			// debug_output_float_preview(reinterpret_cast<float*>(output_buffer),
-									 // model_width, model_height, model_channels,
-									 // "jpeg_final_preview",
-									 // model_handler_->get_config().normalize);
-		} else if (input_type == kTfLiteUInt8) {
-			debug_analyze_processed_zone(output_buffer, 
-									   model_width, model_height, model_channels,
-									   "jpeg_final_output");
-			// debug_output_zone_preview(output_buffer,
-									// model_width, model_height, model_channels,
-									// "jpeg_final_preview");
-		}
-	#endif
+    #ifdef DEBUG_OUT_PROCESSED_IMAGE_TO_SERIAL
+        // Add ZONE_ANALYSIS debug output here
+        if (input_type == kTfLiteFloat32) {
+            debug_analyze_float_zone(reinterpret_cast<float*>(output_buffer), 
+                                    model_width, model_height, model_channels,
+                                    "jpeg_final_output", 
+                                    model_handler_->get_config().normalize);
+            // debug_output_float_preview(reinterpret_cast<float*>(output_buffer),
+                                     // model_width, model_height, model_channels,
+                                     // "jpeg_final_preview",
+                                     // model_handler_->get_config().normalize);
+        } else if (input_type == kTfLiteUInt8) {
+            debug_analyze_processed_zone(output_buffer, 
+                                       model_width, model_height, model_channels,
+                                       "jpeg_final_output");
+            // debug_output_zone_preview(output_buffer,
+                                    // model_width, model_height, model_channels,
+                                    // "jpeg_final_preview");
+        }
+    #endif
 #endif
 
     // Free cropped buffer
