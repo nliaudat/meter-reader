@@ -11,6 +11,10 @@
 #include <iomanip>
 #endif
 
+// test with direct model loading (no progmem)
+// #include "model_data.h"
+
+
 namespace esphome {
 namespace meter_reader_tflite {
 
@@ -19,20 +23,103 @@ static const char *const TAG = "ModelHandler";
 bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
                             uint8_t* tensor_arena, size_t tensor_arena_size,
                             const ModelConfig &config) {
+// bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
+                            // uint8_t* tensor_arena, size_t tensor_arena_size,
+                            // const ModelConfig &config) {
+                                
+                                
   ESP_LOGD(TAG, "Loading model with config:");
   ESP_LOGD(TAG, "  Description: %s", config.description.c_str());
   ESP_LOGD(TAG, "  Output processing: %s", config.output_processing.c_str());
+  ESP_LOGD(TAG, "Model data validation:");
+  ESP_LOGD(TAG, "  Model data pointer: %p", model_data);
+  ESP_LOGD(TAG, "  Model data size: %zu bytes", model_size);
+  // ESP_LOGD(TAG, "  Expected size from header: %u bytes", model_data_len);
+  
+  if (model_data == nullptr) {
+    ESP_LOGE(TAG, "Model data pointer is NULL!");
+    return false;
+  }
+  
+  if (model_size == 0) {
+    ESP_LOGE(TAG, "Model data size is 0!");
+    return false;
+  }
+  
+  // if (model_size != model_data_len) {
+    // ESP_LOGE(TAG, "Size mismatch! Passed size: %zu, Header size: %u", 
+             // model_size, model_data_len);
+    // return false;
+  // }
+  
+  
+#ifdef DEBUG_METER_READER_TFLITE
+    // Check TFLite magic number
+    if (model_size >= 8) {
+      ESP_LOGI(TAG, "First 8 bytes: %02X %02X %02X %02X %02X %02X %02X %02X",
+               model_data[0], model_data[1], model_data[2], model_data[3],
+               model_data[4], model_data[5], model_data[6], model_data[7]);
+      
+      // TFLite magic number should be: XX 00 00 00 54 46 4C 33
+      // The first byte can vary (0x1C for older versions, 0x20 for newer)
+      // but the last 4 bytes should always be 'T','F','L','3' in ASCII
+      if (model_data[1] == 0x00 && model_data[2] == 0x00 && model_data[3] == 0x00 &&
+          model_data[4] == 0x54 && model_data[5] == 0x46 &&
+          model_data[6] == 0x4C && model_data[7] == 0x33) {
+        ESP_LOGI(TAG, "Valid TFLite magic number found (version byte: 0x%02X)", model_data[0]);
+      } else {
+        ESP_LOGE(TAG, "Invalid TFLite magic number");
+        return false;
+      }
+    }
+#endif
   
   config_ = config;
   
-  tflite_model_ = tflite::GetModel(model_data);
+    // For PROGMEM data, we need to handle it specially
+    ESP_LOGI(TAG, "Loading model from PROGMEM (%zu bytes)", model_size);
+    
+    // Check if we need to copy from PROGMEM to RAM (if tflite can't handle PROGMEM directly)
+    // Some TFLite implementations might require RAM-based data
+    
+    // Option 1: Try direct access (if TFLite supports PROGMEM)
+    tflite_model_ = tflite::GetModel(model_data);
+    
+    // Option 2: If that fails, copy to RAM first
+    if (tflite_model_ == nullptr) {
+        ESP_LOGW(TAG, "Direct PROGMEM access failed, copying to RAM");
+        std::vector<uint8_t> ram_model(model_data, model_data + model_size);
+        tflite_model_ = tflite::GetModel(ram_model.data());
+    }
+  
+  if (tflite_model_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to parse model - invalid data");
+    
+    // Additional debug: check if memory is accessible
+    ESP_LOGI(TAG, "Testing memory access...");
+    uint8_t test_sum = 0;
+    for (size_t i = 0; i < std::min((size_t)100, model_size); i++) {
+      test_sum += model_data[i];
+    }
+    ESP_LOGI(TAG, "Memory access test sum: %u", test_sum);
+    
+    return false;
+  }
+
   if (tflite_model_->version() != TFLITE_SCHEMA_VERSION) {
     ESP_LOGE(TAG, "Model schema version mismatch");
     return false;
   }
 
 #ifdef DEBUG_METER_READER_TFLITE
-  static tflite::MicroMutableOpResolver<10> resolver;
+
+    // Check basic model structure
+    auto* subgraph = tflite_model_->subgraphs()->Get(0);
+    ESP_LOGD(TAG, "Model subgraph tensors: %d", subgraph->tensors()->size());
+    ESP_LOGD(TAG, "Model subgraph operators: %d", subgraph->operators()->size());
+
+
+  static tflite::MicroMutableOpResolver<11> resolver;
 
   TfLiteStatus status = kTfLiteOk;
   if (resolver.AddQuantize() != kTfLiteOk) status = kTfLiteError;
@@ -45,6 +132,8 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
   if (resolver.AddDequantize() != kTfLiteOk) status = kTfLiteError;
   if (resolver.AddRelu() != kTfLiteOk) status = kTfLiteError;
   if (resolver.AddSoftmax() != kTfLiteOk) status = kTfLiteError;
+  if (resolver.AddLeakyRelu() != kTfLiteOk) status = kTfLiteError;
+  
 
   if (status != kTfLiteOk) {
     ESP_LOGE(TAG, "Failed to register one or more operations");
@@ -56,6 +145,14 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
 #else
   // Your existing dynamic registration
   static tflite::MicroMutableOpResolver<MAX_OPERATORS> resolver;
+  
+  ESP_LOGD(TAG, "Operator codes found in model:");
+	for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
+	  const auto *op_code = tflite_model_->operator_codes()->Get(i);
+	  ESP_LOGD(TAG, "  [%d]: %d (%s)", i, op_code->builtin_code(),
+			   tflite::EnumNameBuiltinOperator(op_code->builtin_code()));
+	}
+  
   std::set<tflite::BuiltinOperator> required_ops;
   
   for (size_t i = 0; i < tflite_model_->operator_codes()->size(); ++i) {
@@ -115,7 +212,10 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
 
   ESP_LOGI(TAG, "Model loaded successfully");
   
-  debug_model_architecture(); 
+#ifdef DEBUG_METER_READER_TFLITE
+  debug_model_architecture();   
+  verify_model_crc(model_data, model_size);
+#endif  
   
   return true;
 }
@@ -249,11 +349,20 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     ESP_LOGE(TAG, "Invalid number of output classes: %d", num_classes);
     return result;
   }
+  
+#ifdef DEBUG_METER_READER_TFLITE
+  //// RAW model output
+  // ESP_LOGD(TAG, "Raw model outputs before any processing:");
+	// for (int i = 0; i < num_classes; i++) {
+		// ESP_LOGD(TAG, "  Class %d: %.6f", i, output_data[i]);
+	// }
+
 
   // Debug: log output range
   float min_val = *std::min_element(output_data, output_data + num_classes);
   float max_val = *std::max_element(output_data, output_data + num_classes);
   ESP_LOGD(TAG, "Output range: min=%.2f, max=%.2f", min_val, max_val);
+#endif
 
   // Find the max value and its index
   int max_idx = 0;
@@ -379,6 +488,55 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     ESP_LOGD(TAG, "Experimental scale - Value: %.1f, Confidence: %.6f", 
              result.value, result.confidence);
   }
+  else if (config_.output_processing == "logits_jomjol") {
+    // Exact replication of GetOutClassification() behavior
+    // Simply find the maximum value and return its index (scaled by 10)
+    result.value = static_cast<float>(max_idx) / config_.scale_factor;
+    
+    // For confidence, use the raw maximum value
+    // Original C++ code didn't calculate confidence, so we use raw value
+    result.confidence = max_val_output;
+    
+    ESP_LOGD(TAG, "Logits jomjol - Value: %.1f, Raw Max: %.6f", 
+             result.value, max_val_output);
+  }
+  else if (config_.output_processing == "softmax_jomjol") {
+    // Exact replication of Python script behavior
+    // Always apply softmax first, then find max probability
+    float sum = 0.0f;
+    std::vector<float> exp_values(num_classes);
+    
+    // Subtract max for numerical stability (like TensorFlow does)
+    float max_val = *std::max_element(output_data, output_data + num_classes);
+    for (int i = 0; i < num_classes; i++) {
+        exp_values[i] = expf(output_data[i] - max_val);
+        sum += exp_values[i];
+    }
+    
+    // Find the class with highest probability after softmax
+    int max_idx = 0;
+    float max_prob = 0.0f;
+    for (int i = 0; i < num_classes; i++) {
+        float prob = exp_values[i] / sum;
+        if (prob > max_prob) {
+            max_prob = prob;
+            max_idx = i;
+        }
+    }
+    
+    // Apply scaling (like Python script's default case)
+    result.value = static_cast<float>(max_idx) / config_.scale_factor;
+    result.confidence = max_prob;
+	
+	ESP_LOGD(TAG, "Softmax probabilities:");
+	for (int i = 0; i < num_classes; i++) {
+		float prob = exp_values[i] / sum;
+		ESP_LOGD(TAG, "  Class %d: %.6f", i, prob);
+	}
+    
+    ESP_LOGD(TAG, "Softmax jomjol - Value: %.1f, Confidence: %.6f", 
+             result.value, result.confidence);
+  }
   else {
     ESP_LOGE(TAG, "Unknown output processing method: %s", 
              config_.output_processing.c_str());
@@ -449,7 +607,7 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
   else if (input->type == kTfLiteFloat32) {
     
     float* dst = input->data.f;
-    if (config_.normalize) {
+/*     if (config_.normalize) {
       // Normalize to [0,1]
       for (size_t i = 0; i < input_size; i++) {
         dst[i] = static_cast<float>(input_data[i]) / 255.0f;
@@ -469,7 +627,20 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
       for (int i = 0; i < 5 && i < input_size; i++) {
         ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
       }
+    } */
+    
+    
+    // Input data is already normalized by image processor, just copy it
+    for (size_t i = 0; i < input_size; i++) {
+      dst[i] = static_cast<float>(input_data[i]);
     }
+
+    // Debug logging
+    ESP_LOGD(TAG, "First 5 float32 inputs:");
+    for (int i = 0; i < 5 && i < input_size; i++) {
+      ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
+    }
+
     
     // Add detailed input statistics
         ESP_LOGD(TAG, "Input tensor statistics (float32, 0-255 range):");
@@ -545,11 +716,13 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
         model_output_ = output->data.f;
     }
 
-    // Log raw output values for debugging
-    ESP_LOGD(TAG, "Raw output values (%d classes):", output_size_);
-    for (int i = 0; i < output_size_ && i < 15; i++) {
-        ESP_LOGD(TAG, "  Output[%d]: %.6f", i, model_output_[i]);
-    }
+#ifdef DEBUG_METER_READER_TFLITE
+    //// Log raw output values for debugging
+    // ESP_LOGD(TAG, "Raw output values (%d classes):", output_size_);
+    // for (int i = 0; i < output_size_ && i < 15; i++) {
+        // ESP_LOGD(TAG, "  Output[%d]: %.6f", i, model_output_[i]);
+    // }
+#endif
     
     // Process the output to get both value and confidence
     processed_output_ = process_output(model_output_);
@@ -697,8 +870,8 @@ void ModelHandler::test_configuration(const ModelConfig& config,
     // Test this configuration on all zones
     for (size_t zone_idx = 0; zone_idx < zone_data.size(); zone_idx++) {
         const auto& zone_buffer = zone_data[zone_idx];
-		
-		// Reset watchdog every few zones to prevent timeout
+        
+        // Reset watchdog every few zones to prevent timeout
         if (zone_idx % 3 == 0) {
             feed_watchdog();
         }
@@ -737,8 +910,8 @@ void ModelHandler::debug_test_parameters(const std::vector<std::vector<uint8_t>>
     ESP_LOGI(TAG, "=== DEBUG PARAMETER TESTING ===");
     ESP_LOGI(TAG, "Testing %d zones with %zu configurations", 
              zone_data.size(), generate_debug_configs().size());
-			 
-	// Reset watchdog at the start
+             
+    // Reset watchdog at the start
     feed_watchdog();
     
     std::vector<ConfigTestResult> all_results;
@@ -747,7 +920,7 @@ void ModelHandler::debug_test_parameters(const std::vector<std::vector<uint8_t>>
     for (size_t i = 0; i < configs.size(); i++) {
         ESP_LOGI(TAG, "--- Test %zu/%zu ---", i + 1, configs.size());
         test_configuration(configs[i], zone_data, all_results);
-		
+        
         // Reset watchdog every few configurations
         if (i % 5 == 0) {
             feed_watchdog();
@@ -792,7 +965,43 @@ void ModelHandler::feed_watchdog() {
     ESP_LOGD(TAG, "Watchdog fed");
 }
 
+
+void ModelHandler::verify_model_crc(const uint8_t* model_data, size_t model_size) {
+    uint32_t crc = crc32_runtime(model_data, model_size);
+    ESP_LOGI(TAG, "Model checksum (runtime): 0x%08" PRIX32, crc);
+    ESP_LOGI(TAG, "Model checksum (compile): 0x%08X", MODEL_CRC32);
+
+    if (crc == static_cast<uint32_t>(MODEL_CRC32)) {
+        ESP_LOGI(TAG, "Model integrity verified");
+    } else {
+        ESP_LOGE(TAG, "Model integrity check failed!");
+    }
+}
+
+
+uint32_t crc32_runtime(const uint8_t* data, size_t length) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < length; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            if (crc & 1)
+                crc = (crc >> 1) ^ 0xEDB88320;
+            else
+                crc >>= 1;
+        }
+    }
+    return crc ^ 0xFFFFFFFF;
+}
+
 #endif
 
 }  // namespace meter_reader_tflite
+
+
+// #ifdef DEBUG_METER_READER_TFLITE
+    // namespace {
+
+    // } // anonymous namespace
+// #endif
+
 }  // namespace esphome

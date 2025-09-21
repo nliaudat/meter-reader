@@ -392,12 +392,12 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
     decode_config.clipper.height = static_cast<uint16_t>(config_.camera_height);
     decode_config.rotate = JPEG_ROTATE_0D;
     decode_config.block_enable = false;
-	
-	// Add debug logging for config
-	ESP_LOGD(TAG, "JPEG decoder config:");
-	ESP_LOGD(TAG, "  output_type: %d", decode_config.output_type);
-	ESP_LOGD(TAG, "  scale: %dx%d", decode_config.scale.width, decode_config.scale.height);
-	ESP_LOGD(TAG, "  clipper: %dx%d", decode_config.clipper.width, decode_config.clipper.height);
+    
+    // Add debug logging for config
+    ESP_LOGD(TAG, "JPEG decoder config:");
+    ESP_LOGD(TAG, "  output_type: %d", decode_config.output_type);
+    ESP_LOGD(TAG, "  scale: %dx%d", decode_config.scale.width, decode_config.scale.height);
+    ESP_LOGD(TAG, "  clipper: %dx%d", decode_config.clipper.width, decode_config.clipper.height);
 
     jpeg_dec_handle_t decoder = nullptr;
     jpeg_error_t ret = jpeg_dec_open(&decode_config, &decoder);
@@ -436,11 +436,11 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
         stats_.jpeg_decoding_errors++;
         return false;
     }
-	
-	
-	ESP_LOGD(TAG, "JPEG header info:");
-	ESP_LOGD(TAG, "  width: %d, height: %d", header_info.width, header_info.height);
-	// Note: components and MCU fields are not available in this version of the JPEG decoder
+    
+    
+    ESP_LOGD(TAG, "JPEG header info:");
+    ESP_LOGD(TAG, "  width: %d, height: %d", header_info.width, header_info.height);
+    // Note: components and MCU fields are not available in this version of the JPEG decoder
 
     ret = jpeg_dec_process(decoder, &io);
     if (ret != JPEG_ERR_OK) {
@@ -453,9 +453,9 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
 
     ESP_LOGD(TAG, "Full JPEG decoded successfully to %dx%d RGB888", 
              config_.camera_width, config_.camera_height);
-			 
+             
 #ifdef DEBUG_METER_READER_TFLITE
-	debug_log_rgb888_image(full_image_buf, config_.camera_width, config_.camera_height, 
+    debug_log_rgb888_image(full_image_buf, config_.camera_width, config_.camera_height, 
                       "jpeg_decoded_full");
 #endif
 
@@ -490,10 +490,10 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
         uint8_t* dst = cropped_buf + y * crop_width * 3;
         memcpy(dst, src, crop_width * 3);
     }
-	
-	
+    
+    
 #ifdef DEBUG_METER_READER_TFLITE
-	debug_log_rgb888_image(cropped_buf, crop_width, crop_height, 
+    debug_log_rgb888_image(cropped_buf, crop_width, crop_height, 
                       "jpeg_cropped");
 #endif
 
@@ -515,37 +515,39 @@ bool ImageProcessor::process_jpeg_zone_to_buffer(
     }
 
 /* #ifdef DEBUG_METER_READER_TFLITE
-	if (input_type == kTfLiteFloat32) {
-		debug_log_float_image(reinterpret_cast<float*>(output_buffer), 
-							 model_width * model_height * model_channels,
-							 model_width, model_height, model_channels,
-							 "jpeg_scaled_float");
-	} else if (input_type == kTfLiteUInt8) {
-		debug_log_image(output_buffer, required_size,
-					   model_width, model_height, model_channels,
-					   "jpeg_scaled_uint8");
+    if (input_type == kTfLiteFloat32) {
+        debug_log_float_image(reinterpret_cast<float*>(output_buffer), 
+                             model_width * model_height * model_channels,
+                             model_width, model_height, model_channels,
+                             "jpeg_scaled_float");
+    } else if (input_type == kTfLiteUInt8) {
+        debug_log_image(output_buffer, required_size,
+                       model_width, model_height, model_channels,
+                       "jpeg_scaled_uint8");
 }
 #endif */
 
 #ifdef DEBUG_METER_READER_TFLITE
-    // Add ZONE_ANALYSIS debug output here
-    if (input_type == kTfLiteFloat32) {
-        debug_analyze_float_zone(reinterpret_cast<float*>(output_buffer), 
-                                model_width, model_height, model_channels,
-                                "jpeg_final_output", 
-                                model_handler_->get_config().normalize);
-        // debug_output_float_preview(reinterpret_cast<float*>(output_buffer),
-                                 // model_width, model_height, model_channels,
-                                 // "jpeg_final_preview",
-                                 // model_handler_->get_config().normalize);
-    } else if (input_type == kTfLiteUInt8) {
-        debug_analyze_processed_zone(output_buffer, 
-                                   model_width, model_height, model_channels,
-                                   "jpeg_final_output");
-        // debug_output_zone_preview(output_buffer,
-                                // model_width, model_height, model_channels,
-                                // "jpeg_final_preview");
-    }
+	#ifdef DEBUG_OUT_PROCESSED_IMAGE_TO_SERIAL
+		// Add ZONE_ANALYSIS debug output here
+		if (input_type == kTfLiteFloat32) {
+			debug_analyze_float_zone(reinterpret_cast<float*>(output_buffer), 
+									model_width, model_height, model_channels,
+									"jpeg_final_output", 
+									model_handler_->get_config().normalize);
+			// debug_output_float_preview(reinterpret_cast<float*>(output_buffer),
+									 // model_width, model_height, model_channels,
+									 // "jpeg_final_preview",
+									 // model_handler_->get_config().normalize);
+		} else if (input_type == kTfLiteUInt8) {
+			debug_analyze_processed_zone(output_buffer, 
+									   model_width, model_height, model_channels,
+									   "jpeg_final_output");
+			// debug_output_zone_preview(output_buffer,
+									// model_width, model_height, model_channels,
+									// "jpeg_final_preview");
+		}
+	#endif
 #endif
 
     // Free cropped buffer
@@ -575,7 +577,7 @@ ImageProcessor::ProcessResult ImageProcessor::process_zone(
     ProcessResult result;
     
     ESP_LOGD(TAG, "Processing zone [%d,%d,%d,%d]", zone.x1, zone.y1, zone.x2, zone.y2);
-	ESP_LOGD(TAG, "Zone dimensions: %dx%d", zone.x2 - zone.x1, zone.y2 - zone.y1);
+    ESP_LOGD(TAG, "Zone dimensions: %dx%d", zone.x2 - zone.x1, zone.y2 - zone.y1);
 
     // Validate input and zone
     if (!validate_input_image(image)) {
@@ -779,18 +781,18 @@ bool ImageProcessor::process_raw_zone_to_buffer(
 
     ESP_LOGD(TAG, "Raw zone processed successfully: %dx%d -> %dx%d -> %dx%d",
              crop_width, crop_height, model_width, model_height);
-			 
+             
 #ifdef DEBUG_METER_READER_TFLITE
-	if (input_type == kTfLiteFloat32) {
-		debug_log_float_image(reinterpret_cast<float*>(output_buffer), 
-							 model_width * model_height * model_channels,
-							 model_width, model_height, model_channels,
-							 "raw_processed_float");
-	} else if (input_type == kTfLiteUInt8) {
-		debug_log_image(output_buffer, required_size,
-					   model_width, model_height, model_channels,
-					   "raw_processed_uint8");
-	}
+    if (input_type == kTfLiteFloat32) {
+        debug_log_float_image(reinterpret_cast<float*>(output_buffer), 
+                             model_width * model_height * model_channels,
+                             model_width, model_height, model_channels,
+                             "raw_processed_float");
+    } else if (input_type == kTfLiteUInt8) {
+        debug_log_image(output_buffer, required_size,
+                       model_width, model_height, model_channels,
+                       "raw_processed_uint8");
+    }
 #endif
              
     return true;
@@ -837,8 +839,8 @@ bool ImageProcessor::process_rgb888_crop_and_scale_to_float32(
     DEBUG_ZONE_INFO(zone, crop_width, crop_height, model_width, model_height);
     DEBUG_FIRST_PIXELS(float_output, model_width * model_height * model_channels, model_channels);
     DEBUG_CHANNEL_ORDER(float_output, model_width * model_height * model_channels, model_channels);
-	
-	
+    
+    
     // For the other debug functions, we need to convert float to uint8 for analysis
     // Create a temporary uint8 buffer for debugging
     std::vector<uint8_t> debug_buffer(model_width * model_height * model_channels);
