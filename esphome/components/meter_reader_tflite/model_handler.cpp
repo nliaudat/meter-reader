@@ -199,9 +199,9 @@ bool ModelHandler::load_model(const uint8_t *model_data, size_t model_size,
   TfLiteTensor* output = output_tensor();
   if (output && config_.output_processing.empty()) {
     if (output->dims->size >= 2 && output->dims->data[1] == 100) {
-      config_.output_processing = "logits_scale10";
+      config_.output_processing = "logits";
       config_.scale_factor = 10.0f;
-      ESP_LOGW(TAG, "Auto-detected class100 model, using softmax_scale10 processing");
+      ESP_LOGW(TAG, "Auto-detected class100 model, using softmax processing");
     } else if (output->dims->size >= 2 && output->dims->data[1] == 10) {
       config_.output_processing = "softmax";
       config_.scale_factor = 1.0f;
@@ -386,32 +386,6 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     float sum = 0.0f;
     std::vector<float> exp_values(num_classes);
     
-    for (int i = 0; i < num_classes; i++) {
-      exp_values[i] = expf(output_data[i]);
-      sum += exp_values[i];
-    }
-    
-    // Find the class with highest probability after softmax
-    int softmax_max_idx = 0;
-    float softmax_max_val = 0.0f;
-    for (int i = 0; i < num_classes; i++) {
-      float prob = exp_values[i] / sum;
-      if (prob > softmax_max_val) {
-        softmax_max_val = prob;
-        softmax_max_idx = i;
-      }
-    }
-    
-    result.value = static_cast<float>(softmax_max_idx);
-    result.confidence = softmax_max_val;
-    ESP_LOGD(TAG, "Softmax - Value: %.1f, Confidence: %.6f", 
-             result.value, result.confidence);
-  }
-  else if (config_.output_processing == "softmax_scale10") {
-    // Calculate softmax probabilities
-    float sum = 0.0f;
-    std::vector<float> exp_values(num_classes);
-    
     // Subtract max value for numerical stability
     float max_val = *std::max_element(output_data, output_data + num_classes);
         for (int i = 0; i < num_classes; i++) {
@@ -432,10 +406,10 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     
     result.value = static_cast<float>(softmax_max_idx) / config_.scale_factor;  // ÷ 10.0
     result.confidence = softmax_max_val;
-    ESP_LOGD(TAG, "Softmax scale10 - Value: %.1f, Confidence: %.6f", 
+    ESP_LOGD(TAG, "Softmax - Value: %.1f, Confidence: %.6f", 
              result.value, result.confidence);
   }
-  else if (config_.output_processing == "logits_scale10") { 
+  else if (config_.output_processing == "logits") { 
     // Treat raw outputs as logits - just find maximum value
     result.value = static_cast<float>(max_idx) / config_.scale_factor;
     
@@ -449,7 +423,7 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
       result.confidence = 1.0f; // All values are the same
     }
     
-    ESP_LOGD(TAG, "Logits scale10 - Value: %.1f, Raw Max: %.2f, Confidence: %.6f", 
+    ESP_LOGD(TAG, "Logits - Value: %.1f, Raw Max: %.2f, Confidence: %.6f", 
              result.value, max_val_output, result.confidence);
   }
   else if (config_.output_processing == "experimental_scale") {
@@ -527,12 +501,15 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
     // Apply scaling (like Python script's default case)
     result.value = static_cast<float>(max_idx) / config_.scale_factor;
     result.confidence = max_prob;
-    
-    ESP_LOGD(TAG, "Softmax probabilities:");
-    for (int i = 0; i < num_classes; i++) {
-        float prob = exp_values[i] / sum;
-        ESP_LOGD(TAG, "  Class %d: %.6f", i, prob);
-    }
+
+  
+#ifdef DEBUG_METER_READER_TFLITE    
+    // ESP_LOGD(TAG, "Softmax probabilities:");
+    // for (int i = 0; i < num_classes; i++) {
+        // float prob = exp_values[i] / sum;
+        // ESP_LOGD(TAG, "  Class %d: %.6f", i, prob);
+    // }
+#endif
     
     ESP_LOGD(TAG, "Softmax jomjol - Value: %.1f, Confidence: %.6f", 
              result.value, result.confidence);
@@ -819,7 +796,7 @@ std::vector<ModelConfig> ModelHandler::generate_debug_configs() const {
     std::vector<bool> normalize_options = {true, false};
     std::vector<std::string> input_types = {"float32", "uint8"};
     std::vector<std::string> output_processings = {
-        "softmax_scale10", "softmax", "direct_class", "logits_scale10", "experimental_scale"
+        "softmax", "softmax", "direct_class", "logits", "experimental_scale"
     };
     
     // Generate all combinations

@@ -11,7 +11,7 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
     {"class100-0180", 
         ModelConfig{
             .description = "dig-class100-0180",
-            .output_processing = "softmax_scale10", //"softmax_jomjol", //"softmax_scale10",// "logits_jomjol", //model trained with from_logits=True
+            .output_processing = "softmax_jomjol", //logits_jomjol is the good mathematical way to calcultate the confidence, but softmax_jomjol give a greater confidence. //"softmax_jomjol", //"softmax",// "logits_jomjol", //model trained with from_logits=True
             .scale_factor = 10.0f, // For 100-class models (0.0-9.9)
             .input_type = "float32", //"uint8", // Model is float32, not quantized!
             .input_channels = 3,
@@ -23,11 +23,11 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
     {"class100-0173", 
         ModelConfig{
             .description = "dig-class100-0173",
-            .output_processing = "softmax_scale10",
+            .output_processing = "softmax",
             .scale_factor = 10.0f,
             .input_type = "float32",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-            .input_order = "BGR",
+            .input_order = "RGB",
             .input_size = {32, 20}, 
             .normalize = false //.normalize = false      // Quantization handles scaling 
         }
@@ -39,7 +39,7 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
             .scale_factor = 1.0f,
             .input_type = "float32",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-            .input_order = "BGR",
+            .input_order = "RGB",
             .input_size = {32, 20}, 
             .normalize = false //.normalize = false      // Quantization handles scaling 
         }
@@ -51,7 +51,7 @@ static const std::unordered_map<std::string, ModelConfig> MODEL_CONFIGS = {
             .scale_factor = 1.0f,
             .input_type = "float32",  // Quantized models use uint8 "float32",
             .input_channels = 3,
-            .input_order = "BGR",
+            .input_order = "RGB",
             .input_size = {32, 20},
             .normalize = false //.normalize = false      // Quantization handles scaling 
         }
