@@ -86,7 +86,7 @@ meter_reader_tflite:
   model: "model.tflite"
   camera_id: cam0
   confidence_threshold: 0.7
-  tensor_arena_size: 512KB
+  tensor_arena_size: 100KB
   update_interval: 60s
   meter_reader_value_sensor:
     name: "Meter Reading"
@@ -100,7 +100,7 @@ meter_reader_tflite:
   model: "model.tflite"
   camera_id: cam0
   confidence_threshold: 0.8
-  tensor_arena_size: 800KB
+  tensor_arena_size: 500KB
   update_interval: 30s
   debug: true
   debug_image: false
@@ -249,7 +249,7 @@ public:
 
 ### Memory Optimization
 
-- **Tensor Arena**: Start with 512KB, increase if model fails to load
+- **Tensor Arena**: Start with 50KB, increase if model fails to load
 - **Image Resolution**: Use lowest practical camera resolution
 - **Crop Zones**: Define precise zones to minimize processing area
 
@@ -295,7 +295,7 @@ meter_reader_tflite:
   model: "water_meter.tflite"
   camera_id: cam0
   confidence_threshold: 0.6
-  tensor_arena_size: 400KB
+  tensor_arena_size: 512KB
   update_interval: 120s
 ```
 
@@ -306,7 +306,7 @@ meter_reader_tflite:
   model: "power_meter.tflite" 
   camera_id: cam0
   confidence_threshold: 0.8
-  tensor_arena_size: 600KB
+  tensor_arena_size: 512KB
   update_interval: 30s
 ```
 

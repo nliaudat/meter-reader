@@ -56,9 +56,9 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_CONFIDENCE_THRESHOLD, default=0.7): cv.float_range(
         min=0.0, max=1.0
     ),
-    cv.Optional(CONF_TENSOR_ARENA_SIZE, default='800KB'): cv.All( ### TODO : change with no range
+    cv.Optional(CONF_TENSOR_ARENA_SIZE, default='512KB'): cv.All( 
         datasize_to_bytes,
-        cv.Range(min=100 * 1024, max=800 * 1024)
+        cv.Range(min=50 * 1024, max=1000 * 1024)
     ),
     cv.Optional(CONF_SENSOR): sensor.sensor_schema(accuracy_decimals=2),
     cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),

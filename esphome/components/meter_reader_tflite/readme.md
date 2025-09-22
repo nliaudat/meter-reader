@@ -1,22 +1,23 @@
 # ESPHome Meter Reader TFLite Component
 
-> AI-powered meter reading using TensorFlow Lite on ESP32 cameras
+> General-purpose TensorFlow Lite Micro implementation for ESP32 with camera support
 
 [![ESPHome](https://img.shields.io/badge/ESPHome-Compatible-brightgreen)](https://esphome.io/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## 🚀 What is this?
 
-This ESPHome component enables automatic meter reading using machine learning. It captures images from an ESP32 camera, processes them through a TensorFlow Lite model, and extracts numerical readings from utility meters (water, electricity, gas, etc.).
+A general-purpose ESPHome component for running TensorFlow Lite Micro models on ESP32 devices. While originally designed for meter reading, it can be used for any computer vision task including object detection, image classification, and custom AI applications.
 
 ## ✨ Key Features
 
-- **🤖 AI-Powered**: Uses TensorFlow Lite Micro for on-device inference
-- **📷 Multi-Format Support**: Works with RGB888, JPEG, RGB565, and grayscale images
-- **🎯 Smart Cropping**: Multiple configurable zones for digit extraction
-- **⚡ Real-time Processing**: Runs directly on ESP32 without cloud dependency
-- **🔧 Easy Configuration**: Simple YAML configuration with ESPHome
-- **🐛 Extensive Debugging**: Built-in debugging tools and image analysis
+- **🤖 TensorFlow Lite Micro**: Full TFLite Micro runtime support
+- **📷 Camera Integration**: Seamless ESP32 camera integration
+- **🖼️ Image Preprocessing**: Automatic cropping, scaling, and format conversion
+- **⚡ Optimized Performance**: ESP-NN accelerated operations
+- **🎯 Multi-Zone Processing**: Process multiple regions of interest
+- **🔧 Flexible Configuration**: Support for various model types and input formats
+- **🐛 Advanced Debugging**: Real-time image analysis and model output inspection
 
 ## 🏁 Quick Start
 
@@ -39,23 +40,17 @@ external_components:
 # Configure camera
 esp32_camera:
   id: my_camera
-  name: "Meter Camera"
-  resolution: 800x600
-  pixel_format: RGB888
+  name: "AI Camera"
+  resolution: 640x480
+  pixel_format: JPEG
 
-# Configure meter reader
+# Configure TFLite component
 meter_reader_tflite:
-  id: meter_reader
-  model: "model.tflite"  # Your trained model file
+  id: tflite_processor
+  model: "model.tflite"  # Your TensorFlow Lite model
   camera_id: my_camera
-  confidence_threshold: 0.7
   tensor_arena_size: 512KB
   update_interval: 60s
-  
-  # Optional: Publish readings as sensor
-  meter_reader_value_sensor:
-    name: "Water Meter Reading"
-    id: water_meter_value
 ```
 
 ### 3. Add Your Model
@@ -65,165 +60,265 @@ Place your trained `.tflite` model file in the same directory as your ESPHome co
 ## 📋 Prerequisites
 
 - **ESP32 board** with camera support
-- **ESPHome 2023.12** or newer
-- **Trained TFLite model** for digit recognition
-- **Camera** focused on your meter display
+- **ESPHome 2025.08** or newer
+- **TensorFlow Lite model** (quantized recommended)
 
-## 🎯 How It Works
+## 🎯 Use Cases
 
-1. **Image Capture**: ESP32 camera takes a picture of the meter
-2. **Zone Processing**: Image is split into predefined digit zones
-3. **AI Inference**: Each zone is processed by the TensorFlow Lite model
-4. **Digit Recognition**: Model identifies numbers in each zone
-5. **Value Assembly**: Individual digits are combined into final reading
-6. **Sensor Output**: Result published as ESPHome sensor
+### Computer Vision Applications
+- **Object Detection**: Identify objects in camera frames
+- **Image Classification**: Categorize images into classes
+- **Anomaly Detection**: Detect unusual patterns or events
+- **Quality Control**: Inspect products or components
+- **Gesture Recognition**: Recognize hand gestures or movements
+
+### Meter Reading (Original Purpose)
+- Water, electricity, gas meter digit recognition
+- Analog gauge reading
+- Digital display extraction
 
 ## ⚙️ Configuration Examples
 
-### Basic Water Meter
+### Basic Object Detection
 
 ```yaml
 meter_reader_tflite:
-  id: water_meter
-  model: "water_model.tflite"
+  id: object_detector
+  model: "object_model.tflite"
   camera_id: my_camera
-  confidence_threshold: 0.6
-  tensor_arena_size: 400KB
-  update_interval: 120s
-  
-  meter_reader_value_sensor:
-    name: "Water Consumption"
-    unit_of_measurement: "m³"
-    accuracy_decimals: 2
-```
-
-### Advanced Electricity Meter with Debugging
-
-```yaml
-meter_reader_tflite:
-  id: power_meter
-  model: "power_model.tflite"
-  camera_id: my_camera
-  confidence_threshold: 0.8
-  tensor_arena_size: 600KB
+  tensor_arena_size: 512KB
   update_interval: 30s
-  debug: true
-  debug_image_out_serial: true
-  
-  meter_reader_value_sensor:
-    name: "Power Consumption"
-    unit_of_measurement: "kWh"
-    accuracy_decimals: 1
-    
-  confidence_sensor:
-    name: "Reading Confidence"
-    accuracy_decimals: 3
+  confidence_threshold: 0.7
 ```
 
-### Custom Crop Zones
+### Image Classification
+
+```yaml
+meter_reader_tflite:
+  id: image_classifier
+  model: "dig-class100-0180-s2-q.tflite"  # Must be in same directory as YAML
+  camera_id: my_camera
+  tensor_arena_size: 512KB
+  update_interval: 60s
+  
+  # Custom sensor for classification results
+  sensor:
+    - name: "Detection Confidence"
+      id: detection_confidence
+```
+
+### Multi-Zone Processing
 
 ```yaml
 globals:
-  - id: crop_zones
+  - id: detection_zones
     type: string
-    initial_value: '[[100,200,140,280],[160,200,200,280],[220,200,260,280]]'
+    initial_value: '[[0,0,400,300],[400,0,800,300],[0,300,400,600],[400,300,800,600]]'
 
 meter_reader_tflite:
-  # ... other config
-  crop_zones_global: globals.crop_zones
+  id: multi_zone_detector
+  model: "detection_model.tflite"
+  camera_id: my_camera
+  tensor_arena_size: 512KB
+  crop_zones_global: globals.detection_zones
 ```
 
-## 🔧 Model Training Tips
+### Advanced Configuration with Debugging
 
-### Recommended Model Specifications
-- **Input size**: 32x20 pixels (RGB)
-- **Output classes**: 100 (for 0.0-9.9 range) or 10 (digits 0-9)
-- **Quantization**: Use int8 quantization for better performance
-- **Training data**: Include various lighting conditions and angles
-
-### Sample Model Configurations
-The component includes pre-configured support for:
-- **100-class models** (0.0-9.9) with decimal precision
-- **10-class models** (digits 0-9) for whole numbers
-- **MNIST-style models** for grayscale digit recognition
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**❌ Model won't load**
 ```yaml
-# Solution: Increase tensor arena size
 meter_reader_tflite:
-  tensor_arena_size: 800KB  # Increase from 512KB
+  id: advanced_processor
+  model: "custom_model.tflite"
+  camera_id: my_camera
+  tensor_arena_size: 512KB
+  update_interval: 5s
+  debug: true
+  debug_image_out_serial: true
+  confidence_threshold: 0.8
 ```
 
-**❌ Low confidence scores**
+## 🔧 Model Configuration
+
+### Supported Model Types
+
+The component automatically detects and configures for various model architectures:
+
+```cpp
+// Built-in model configurations (model_config.h)
+{"class100-0180", ...}     // 100-class classification (0.0-9.9)
+{"class10-0900", ...}      // 10-class classification (0-9)  
+{"mnist", ...}             // MNIST-style grayscale models
+```
+
+### Custom Model Support
+
+For custom models, the component auto-detects:
+- Input dimensions (width, height, channels)
+- Data type (float32, uint8)
+- Output processing requirements
+
+### Input Formats
+- **RGB888**: 3-channel color images
+- **GRAYSCALE**: 1-channel monochrome
+- **JPEG**: Automatic decoding to RGB888
+- **RGB565**: Automatic conversion
+
+## 🎮 API Usage
+
+### Accessing Model Outputs
+
 ```yaml
-# Solution: Adjust confidence threshold and check lighting
+# Example: Create sensors from model outputs
+sensor:
+  - platform: template
+    name: "Model Output 1"
+    id: output_1
+    lambda: |-
+      // Access model outputs in lambdas
+      return id(tflite_processor).get_output_value(0);
+      
+  - platform: template  
+    name: "Model Confidence"
+    id: output_confidence
+    lambda: |-
+      return id(tflite_processor).get_confidence();
+```
+
+### Custom Output Processing
+
+```cpp
+// Example C lambda for custom output handling
+auto my_output_processor = [](float* outputs, int output_count) -> float {
+    // Custom logic for your model outputs
+    float result = 0.0f;
+    for (int i = 0; i < output_count; i) {
+        result = outputs[i] * custom_weights[i];
+    }
+    return result;
+};
+```
+
+## ⚡ Performance Optimization
+
+### Memory Settings
+
+```yaml
 meter_reader_tflite:
-  confidence_threshold: 0.5  # Lower threshold
-  debug: true               # Enable debug to see processing
+  tensor_arena_size: 512KB  # Default, adjust based on model size
+  
+  # For larger models:
+  # tensor_arena_size: 768KB
+  # tensor_arena_size: 1024KB
 ```
 
-**❌ Memory allocation errors**
+### Camera Optimization
+
 ```yaml
-# Solution: Reduce image resolution
 esp32_camera:
-  resolution: 640x480  # Lower resolution
+  resolution: 640x480      # Lower resolution for faster processing
+  pixel_format: RGB888     # Direct processing, no conversion needed
+  jpeg_quality: 10         # If using JPEG, lower quality for speed
+  framerate: 1 fps         # Reduce frame rate for periodic processing
 ```
 
-### Debugging Steps
+## 🐛 Debugging & Development
 
-1. **Enable debug mode**:
-   ```yaml
-   meter_reader_tflite:
-     debug: true
-     debug_image_out_serial: true
-   ```
+### Enable Debug Output
 
-2. **Check serial output** for detailed processing information
+```yaml
+meter_reader_tflite:
+  debug: true
+  debug_image_out_serial: true
+```
 
-3. **Verify crop zones** match your meter's digit positions
+Debug output includes:
+- Model input/output values
+- Processing timing statistics
+- Memory usage reports
+- Image analysis data
+- Zone processing details
 
-4. **Test with different lighting** conditions
+### Serial Monitoring
 
-## 📊 Performance Notes
+```bash
+# Monitor debug output
+esphome logs your-config.yaml
 
-- **Processing time**: 200-1000ms per reading (depends on image size and model)
-- **Memory usage**: 400-800KB for tensor arena  image buffers
-- **Accuracy**: Typically 90% with well-trained models and good lighting
-- **Power usage**: Minimal when using appropriate update intervals
+# Expected debug output example:
+# DEBUG: Model input: 32x20x3, output: 10 classes
+# DEBUG: Processing time: 45ms
+# DEBUG: Zone 1 confidence: 0.92
+# DEBUG: Memory usage: 412KB/512KB
+```
+
+## 🔍 Troubleshooting
+
+### Common Issues & Solutions
+
+**❌ Model loading fails**
+```yaml
+# Increase tensor arena size
+meter_reader_tflite:
+  tensor_arena_size: 768KB  # Increase from 512KB
+```
+
+**❌ Poor inference results**
+```yaml
+# Check model compatibility and preprocessing
+meter_reader_tflite:
+  debug: true  # Enable debug to see input data
+```
+
+**❌ Camera frame issues**
+```yaml
+# Adjust camera settings
+esp32_camera:
+  resolution: 320x240  # Lower resolution
+  framerate: 1 fps     # Reduce frame rate
+```
+
+### Performance Tips
+
+1. **Use quantized models** (int8) for better performance
+2. **Match input dimensions** to your actual use case
+3. **Enable ESP-NN optimizations** (enabled by default)
+4. **Use appropriate tensor_arena_size** (start with 512KB)
+5. **Optimize update interval** based on your application needs
+
+## 📊 Technical Specifications
+
+- **TensorFlow Lite Version**: Micro 1.3.4
+- **ESP-NN Optimization**: Enabled by default
+- **Memory Usage**: 512KB tensor arena (configurable)
+- **Processing Speed**: 10-1000ms per inference (model-dependent)
+- **Supported Operations**: Conv2D, FullyConnected, Pooling, Activation functions, etc.
+- **Input Types**: float32, int8, uint8
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+This component is designed to be extensible for various TFLite applications. Contributions welcome!
 
-### Development Setup
-
-```bash
-git clone https://github.com/nliaudat/meter-reader.git
-cd meter-reader/esphome/components/meter_reader_tflite
-```
+### Extension Ideas
+- Object detection bounding box support
+- Multi-model switching
+- Custom preprocessing pipelines
+- Cloud model updates
+- Advanced output decoding
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+* Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC-BY-NC-SA)
+* No commercial use
+* The AI model from haverland is under Apache Licence
 
-## 🙏 Acknowledgments
+## 🌟 Acknowledgments
 
-- Built with [ESPHome](https://esphome.io/)
-- Uses [TensorFlow Lite Micro](https://www.tensorflow.org/lite/microcontrollers)
-- Camera support via [ESP32 Camera component](https://github.com/espressif/esp32-camera)
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/nliaudat/meter-reader/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/nliaudat/meter-reader/discussions)
-- **ESPHome Community**: [ESPHome Discord](https://discord.gg/K7jNqSbb)
+- TensorFlow Lite Micro team
+- ESPHome community
+- ESP-NN for performance optimizations
 
 ---
 
-**Happy meter reading!** 📊✨
+**Transform your ESP32 camera into an AI vision system!** 🤖✨
 
-*If this project helps you, please give it a ⭐ on GitHub!*
+*For questions and support, check the GitHub repository discussions section.*
