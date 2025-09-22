@@ -263,9 +263,12 @@ void MeterReaderTFLite::set_camera_image_format(int width, int height, const std
     ESP_LOGD(TAG, "Camera format set: %dx%d, %s", width, height, pixel_format.c_str());
 }
 
-float MeterReaderTFLite::combine_readings(const std::vector<float> &readings) {
+/* float MeterReaderTFLite::combine_readings(const std::vector<float> &readings) {
     float combined_value = 0.0f;
     float multiplier = 1.0f;
+    
+    //combined_value += (*it) * multiplier;  // 0.9*1 + 1.8*10 + 2.9*100 + 3.9*1000 + 4.9*10000 + 5.9*100000 + 6.8*1000000 + 3.2*10000000
+= 11134561
     
     // Combine digits from least significant to most significant
     for (auto it = readings.rbegin(); it != readings.rend(); ++it) {
@@ -273,6 +276,41 @@ float MeterReaderTFLite::combine_readings(const std::vector<float> &readings) {
         multiplier *= 10.0f;
     }
     
+    return combined_value;
+} */
+
+float MeterReaderTFLite::combine_readings(const std::vector<float> &readings) {
+    std::string digit_string;
+    
+    ESP_LOGI(TAG, "Processing %d readings:", readings.size());
+    
+    // Convert each reading to integer digit and handle wrap-around
+    for (size_t i = 0; i < readings.size(); i++) {
+        int digit = static_cast<int>(round(readings[i]));
+        
+        // Handle wrap-around for original models (like Python script)
+        if (digit == 10) {
+            digit = 0;
+            ESP_LOGD(TAG, "Zone %d: Raw=%.1f -> Rounded=10 -> Wrapped to 0", 
+                    i + 1, readings[i]);
+        } else {
+            ESP_LOGD(TAG, "Zone %d: Raw=%.1f -> Rounded=%d", 
+                    i + 1, readings[i], digit);
+        }
+        
+        digit_string += std::to_string(digit);
+    }
+    
+    ESP_LOGI(TAG, "Concatenated digit string: %s", digit_string.c_str());
+    
+    // Convert string to float (like Python's int())
+    float combined_value = std::stof(digit_string);
+    
+    ESP_LOGD(TAG, "Raw readings: [%.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f]", 
+         readings[0], readings[1], readings[2], readings[3], 
+         readings[4], readings[5], readings[6], readings[7]);
+    
+    ESP_LOGI(TAG, "Final combined value: %.0f", combined_value);
     return combined_value;
 }
 
