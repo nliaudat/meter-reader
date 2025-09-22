@@ -306,9 +306,20 @@ float MeterReaderTFLite::combine_readings(const std::vector<float> &readings) {
     // Convert string to float (like Python's int())
     float combined_value = std::stof(digit_string);
     
-    ESP_LOGD(TAG, "Raw readings: [%.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f]", 
-         readings[0], readings[1], readings[2], readings[3], 
-         readings[4], readings[5], readings[6], readings[7]);
+    // ESP_LOGD(TAG, "Raw readings: [%.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f]", 
+         // readings[0], readings[1], readings[2], readings[3], 
+         // readings[4], readings[5], readings[6], readings[7]);
+         
+    std::string readings_str;
+    for (const auto& reading : readings) {
+      if (!readings_str.empty()) {
+        readings_str += ", ";
+      }
+      char buffer[16];
+      snprintf(buffer, sizeof(buffer), "%.1f", reading);
+      readings_str += buffer;
+    }
+    ESP_LOGD(TAG, "Raw readings: [%s]", readings_str.c_str());
     
     ESP_LOGI(TAG, "Final combined value: %.0f", combined_value);
     return combined_value;

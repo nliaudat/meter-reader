@@ -796,7 +796,7 @@ std::vector<ModelConfig> ModelHandler::generate_debug_configs() const {
     std::vector<bool> normalize_options = {true, false};
     std::vector<std::string> input_types = {"float32", "uint8"};
     std::vector<std::string> output_processings = {
-        "softmax", "softmax", "direct_class", "logits", "experimental_scale"
+        "softmax", "direct_class", "logits", "experimental_scale"
     };
     
     // Generate all combinations

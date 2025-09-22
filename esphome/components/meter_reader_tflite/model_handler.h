@@ -29,7 +29,7 @@ uint32_t crc32_runtime(const uint8_t* data, size_t length);
 
 struct ModelConfig {
   std::string description;
-  std::string output_processing; // "softmax", "softmax", "direct_class"
+  std::string output_processing; 
   float scale_factor;
   std::string input_type;
   int input_channels = 3;

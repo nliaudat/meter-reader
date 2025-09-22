@@ -176,7 +176,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   int camera_height_{0};                     ///< Camera image height in pixels
   std::string pixel_format_{"RGB888"};       ///< Camera pixel format
   float confidence_threshold_{0.7f};         ///< Minimum confidence threshold for valid readings
-  size_t tensor_arena_size_requested_{500 * 1024};  ///< Requested tensor arena size
+  size_t tensor_arena_size_requested_{50 * 1024};  ///< Requested tensor arena size
   std::string model_type_{"default"};        ///< Model type identifier
 
   // State variables
