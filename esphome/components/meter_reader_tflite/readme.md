@@ -3,7 +3,7 @@
 > General-purpose TensorFlow Lite Micro implementation for ESP32 with camera support
 
 [![ESPHome](https://img.shields.io/badge/ESPHome-Compatible-brightgreen)](https://esphome.io/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 
 ## 🚀 What is this?
 
@@ -60,7 +60,7 @@ Place your trained `.tflite` model file in the same directory as your ESPHome co
 ## 📋 Prerequisites
 
 - **ESP32 board** with camera support
-- **ESPHome 2025.08** or newer
+- **ESPHome 2025.09** or newer
 - **TensorFlow Lite model** (quantized recommended)
 
 ## 🎯 Use Cases
@@ -84,7 +84,7 @@ Place your trained `.tflite` model file in the same directory as your ESPHome co
 ```yaml
 meter_reader_tflite:
   id: object_detector
-  model: "object_model.tflite"
+  model: "object_model.tflite" # Must be in same directory as YAML
   camera_id: my_camera
   tensor_arena_size: 512KB
   update_interval: 30s
@@ -131,7 +131,7 @@ meter_reader_tflite:
   model: "custom_model.tflite"
   camera_id: my_camera
   tensor_arena_size: 512KB
-  update_interval: 5s
+  update_interval: 60s
   debug: true
   debug_image_out_serial: true
   confidence_threshold: 0.8
@@ -163,40 +163,6 @@ For custom models, the component auto-detects:
 - **JPEG**: Automatic decoding to RGB888
 - **RGB565**: Automatic conversion
 
-## 🎮 API Usage
-
-### Accessing Model Outputs
-
-```yaml
-# Example: Create sensors from model outputs
-sensor:
-  - platform: template
-    name: "Model Output 1"
-    id: output_1
-    lambda: |-
-      // Access model outputs in lambdas
-      return id(tflite_processor).get_output_value(0);
-      
-  - platform: template  
-    name: "Model Confidence"
-    id: output_confidence
-    lambda: |-
-      return id(tflite_processor).get_confidence();
-```
-
-### Custom Output Processing
-
-```cpp
-// Example C lambda for custom output handling
-auto my_output_processor = [](float* outputs, int output_count) -> float {
-    // Custom logic for your model outputs
-    float result = 0.0f;
-    for (int i = 0; i < output_count; i) {
-        result = outputs[i] * custom_weights[i];
-    }
-    return result;
-};
-```
 
 ## ⚡ Performance Optimization
 
@@ -204,7 +170,7 @@ auto my_output_processor = [](float* outputs, int output_count) -> float {
 
 ```yaml
 meter_reader_tflite:
-  tensor_arena_size: 512KB  # Default, adjust based on model size
+  tensor_arena_size: 512KB  # Default, adjust based on model size or if you get bad results
   
   # For larger models:
   # tensor_arena_size: 768KB
@@ -216,8 +182,8 @@ meter_reader_tflite:
 ```yaml
 esp32_camera:
   resolution: 640x480      # Lower resolution for faster processing
-  pixel_format: RGB888     # Direct processing, no conversion needed
-  jpeg_quality: 10         # If using JPEG, lower quality for speed
+  pixel_format: JPEG       # Convert to RGB888
+  jpeg_quality: 20         # If using JPEG, lower quality for speed
   framerate: 1 fps         # Reduce frame rate for periodic processing
 ```
 
@@ -267,6 +233,8 @@ meter_reader_tflite:
 # Check model compatibility and preprocessing
 meter_reader_tflite:
   debug: true  # Enable debug to see input data
+# Increase tensor_arena_size
+    tensor_arena_size: 768KB 
 ```
 
 **❌ Camera frame issues**
@@ -311,11 +279,6 @@ This component is designed to be extensible for various TFLite applications. Con
 * No commercial use
 * The AI model from haverland is under Apache Licence
 
-## 🌟 Acknowledgments
-
-- TensorFlow Lite Micro team
-- ESPHome community
-- ESP-NN for performance optimizations
 
 ---
 

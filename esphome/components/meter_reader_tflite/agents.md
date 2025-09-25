@@ -18,21 +18,15 @@ The `meter_reader_tflite` is an ESPHome custom component that uses TensorFlow Li
 
 ## Installation
 
-### Method 1: Git Submodule (Recommended)
+Add this to your ESPHome configuration:
 
-```bash
-cd your-esphome-config-directory
-mkdir -p custom_components
-cd custom_components
-git submodule add https://github.com/nliaudat/meter-reader.git
-```
-
-### Method 2: Manual Download
-
-1. Download the component from the GitHub repository
-2. Extract to your ESPHome custom components directory:
-```
-config/esphome/custom_components/meter_reader_tflite/
+```yaml
+external_components:
+  - source: 
+      type: git
+      url: https://github.com/nliaudat/meter-reader
+      ref: main
+    components: [meter_reader_tflite]
 ```
 
 ### File Structure
@@ -78,8 +72,8 @@ external_components:
 esp32_camera:
   id: cam0
   name: "Meter Camera"
-  resolution: 800x600
-  pixel_format: RGB888
+  resolution: 640x480
+  pixel_format: JPEG
 
 meter_reader_tflite:
   id: mr0
@@ -331,9 +325,7 @@ For issues and questions:
 3. Ensure compatible ESP32 camera configuration
 4. Check serial logs for specific error messages
 
-## License
 
-This component is provided as-is for ESPHome integration. Ensure compliance with TensorFlow Lite and ESP-IDF component licenses when deploying.
 
 ---
 

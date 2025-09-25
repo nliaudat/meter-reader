@@ -52,16 +52,31 @@ void MemoryManager::report_memory_status(size_t requested_size,
              free_psram, total_psram, free_psram / 1024.0f, total_psram / 1024.0f);
   }
 
-  ESP_LOGI(TAG, "Memory Status:");
-  ESP_LOGI(TAG, "  Requested Arena: %zuB (%.1fKB)", requested_size, requested_size / 1024.0f);
-  ESP_LOGI(TAG, "  Allocated Arena: %zuB (%.1fKB)", allocated_size, allocated_size / 1024.0f);
+  // Calculate total memory usage
+  size_t total_memory_usage = model_size + peak_usage;
+  
+  ESP_LOGI(TAG, "Memory Status (Complete Picture):");
+  ESP_LOGI(TAG, "  Model Size: %zuB (%.1fKB)", model_size, model_size / 1024.0f);
+  ESP_LOGI(TAG, "  Tensor Arena (Requested): %zuB (%.1fKB)", requested_size, requested_size / 1024.0f);
+  ESP_LOGI(TAG, "  Tensor Arena (Allocated): %zuB (%.1fKB)", allocated_size, allocated_size / 1024.0f);
   ESP_LOGI(TAG, "  Arena Peak Usage: %zuB (%.1fKB)", peak_usage, peak_usage / 1024.0f);
+  ESP_LOGI(TAG, "  TOTAL Memory Usage: %zuB (%.1fKB)", total_memory_usage, total_memory_usage / 1024.0f);
   ESP_LOGI(TAG, "  Free Internal Heap: %zuB (%.1fKB)", free_internal, free_internal / 1024.0f);
 
   if (model_size > 0) {
-    float ratio = static_cast<float>(allocated_size) / model_size;
-    ESP_LOGI(TAG, "  Arena/Model Ratio: %.1fx", ratio);
+    float arena_model_ratio = static_cast<float>(allocated_size) / model_size;
+    float total_model_ratio = static_cast<float>(total_memory_usage) / model_size;
+    ESP_LOGI(TAG, "  Arena/Model Ratio: %.1fx", arena_model_ratio);
+    ESP_LOGI(TAG, "  Total/Model Ratio: %.1fx", total_model_ratio);
   }
+}
+
+static void log_current_memory_usage(const char* context) {
+    size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    
+    ESP_LOGD(TAG, "[%s] Free: Internal=%zuB, PSRAM=%zuB", 
+             context, free_internal, free_psram);
 }
 
 }  // namespace meter_reader_tflite
