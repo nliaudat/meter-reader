@@ -30,5 +30,6 @@ class MemoryManager {
                                  size_t model_size);
 };
 
+
 }  // namespace meter_reader_tflite
 }  // namespace esphome

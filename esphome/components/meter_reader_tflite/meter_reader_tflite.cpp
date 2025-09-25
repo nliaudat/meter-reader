@@ -203,33 +203,34 @@ void MeterReaderTFLite::process_full_image(std::shared_ptr<camera::CameraImage> 
         }
 
         // Publish results if successful
-        if (processing_success && !readings.empty()) {
-            float final_reading = combine_readings(readings);
-            float avg_confidence = std::accumulate(confidences.begin(), 
-                                                 confidences.end(), 0.0f) / confidences.size();
-            
-            ESP_LOGI(TAG, "Final reading: %.1f (avg confidence: %.2f)", 
-                    final_reading, avg_confidence);
+    if (processing_success && !readings.empty()) {
+        float final_reading = combine_readings(readings);
+        float avg_confidence = std::accumulate(confidences.begin(), 
+                                             confidences.end(), 0.0f) / confidences.size();
+        
+        // Store the values for template sensors
+        last_reading_ = final_reading;
+        last_confidence_ = avg_confidence;
+        
+        ESP_LOGI(TAG, "Final reading: %.1f (avg confidence: %.2f)", 
+                final_reading, avg_confidence);
 
-            if (value_sensor_) {
-                value_sensor_->publish_state(final_reading);
-            }
-            
-            if (confidence_sensor_ != nullptr) {
-                confidence_sensor_->publish_state(avg_confidence);
-            }
-            
-            if (debug_mode_) {
-                this->print_debug_info();
-            }
-        } else {
-            ESP_LOGE(TAG, "Frame processing failed");
+        // Your existing publish_state calls (keep these if you want both methods)
+        if (value_sensor_) {
+            value_sensor_->publish_state(final_reading);
         }
         
-    // } catch (const std::exception& e) {
-        // ESP_LOGE(TAG, "Exception during image processing: %s", e.what());
-    // }
-
+        if (confidence_sensor_ != nullptr) {
+            confidence_sensor_->publish_state(avg_confidence);
+        }
+        
+        if (debug_mode_) {
+            this->print_debug_info();
+        }
+    } else {
+        ESP_LOGE(TAG, "Frame processing failed");
+    }
+    
     DURATION_END("process_full_image");
 }
 
@@ -328,6 +329,13 @@ float MeterReaderTFLite::combine_readings(const std::vector<float> &readings) {
 MeterReaderTFLite::~MeterReaderTFLite() {
     // Clean up pending frame
     pending_frame_.reset();
+    
+    // Add memory validation
+    ESP_LOGI(TAG, "Component destruction - memory cleanup");
+    #ifdef DEBUG_METER_READER_TFLITE
+    // Optional: Add leak detection here
+    // MemoryTracker::dump_leaks();
+    #endif
 }
 
 size_t MeterReaderTFLite::available() const {
@@ -359,23 +367,29 @@ void MeterReaderTFLite::print_debug_info() {
     ESP_LOGI(TAG, "  Model Loaded: %s", model_loaded_ ? "Yes" : "No");
     ESP_LOGI(TAG, "  Camera Dimensions: %dx%d", camera_width_, camera_height_);
     ESP_LOGI(TAG, "  Pixel Format: %s", pixel_format_.c_str());
-    ESP_LOGI(TAG, "  Confidence Threshold: %.2f", confidence_threshold_);
-    ESP_LOGI(TAG, "  Tensor Arena Size (Requested): %zu bytes", tensor_arena_size_requested_);
-    ESP_LOGI(TAG, "  Tensor Arena Size (Actual): %zu bytes", tensor_arena_allocation_.actual_size);
-    ESP_LOGI(TAG, "  Model Size: %zu bytes", model_length_);
-    ESP_LOGI(TAG, "  Frames Processed: %lu", frames_processed_);
-    ESP_LOGI(TAG, "  Frames Skipped: %lu", frames_skipped_);
-    ESP_LOGI(TAG, "  Debug Mode: %s", debug_mode_ ? "Enabled" : "Disabled");
+    ESP_LOGI(TAG, "  Model Size: %zu bytes (%.1f KB)", model_length_, model_length_ / 1024.0f);
+    ESP_LOGI(TAG, "  Tensor Arena Size (Requested): %zu bytes (%.1f KB)", 
+             tensor_arena_size_requested_, tensor_arena_size_requested_ / 1024.0f);
+    ESP_LOGI(TAG, "  Tensor Arena Size (Actual): %zu bytes (%.1f KB)", 
+             tensor_arena_allocation_.actual_size, tensor_arena_allocation_.actual_size / 1024.0f);
+    
+    // Get the actual peak usage from the interpreter
+    size_t peak_usage = model_handler_.get_arena_peak_bytes();
+    ESP_LOGI(TAG, "  Arena Peak Usage: %zu bytes (%.1f KB)", peak_usage, peak_usage / 1024.0f);
+    
+    // Calculate total memory usage
+    size_t total_memory = model_length_ + tensor_arena_allocation_.actual_size;
+    ESP_LOGI(TAG, "  TOTAL Memory Footprint: %zu bytes (%.1f KB)", 
+             total_memory, total_memory / 1024.0f);
     
     memory_manager_.report_memory_status(
         tensor_arena_size_requested_,
         tensor_arena_allocation_.actual_size,
-        model_handler_.get_arena_peak_bytes(),
+        peak_usage,
         model_length_
     );
     ESP_LOGI(TAG, "----------------------------------");
 }
-
 // void MeterReaderTFLite::print_debug_info() {
     // print_meter_reader_debug_info(this);
 // }
@@ -384,19 +398,52 @@ bool MeterReaderTFLite::load_model() {
     DURATION_START();
     ESP_LOGI(TAG, "Loading TFLite model...");
     
-    // Get model configuration
+    // Get model configuration from model_config.h
     ModelConfig config;
     auto it = MODEL_CONFIGS.find(model_type_);
     if (it != MODEL_CONFIGS.end()) {
         config = it->second;
         ESP_LOGI(TAG, "Using model config: %s", config.description.c_str());
+        
+        // Use tensor arena size from model configuration if not explicitly set
+        if (tensor_arena_size_requested_ == (50 * 1024)) { // If using default
+            // Parse tensor arena size from model config string (e.g., "512KB")
+            std::string arena_size_str = config.tensor_arena_size;
+            size_t multiplier = 1;
+            
+            if (arena_size_str.find("KB") != std::string::npos) {
+                multiplier = 1024;
+                arena_size_str = arena_size_str.substr(0, arena_size_str.length() - 2);
+            } else if (arena_size_str.find("MB") != std::string::npos) {
+                multiplier = 1024 * 1024;
+                arena_size_str = arena_size_str.substr(0, arena_size_str.length() - 2);
+            } else if (arena_size_str.find("B") != std::string::npos) {
+                arena_size_str = arena_size_str.substr(0, arena_size_str.length() - 1);
+            }
+            
+            // Manual string to integer conversion without exceptions
+            const char* str = arena_size_str.c_str();
+            char* end_ptr;
+            long size_value = strtol(str, &end_ptr, 10);
+            
+            // Check if conversion was successful
+            if (end_ptr != str && *end_ptr == '\0' && size_value > 0) {
+                tensor_arena_size_requested_ = size_value * multiplier;
+                ESP_LOGI(TAG, "Using model-specific tensor arena size: %s (%zu bytes)", 
+                        config.tensor_arena_size.c_str(), tensor_arena_size_requested_);
+            } else {
+                ESP_LOGW(TAG, "Failed to parse tensor arena size from config: %s, using default", 
+                        config.tensor_arena_size.c_str());
+                // Keep the default tensor_arena_size_requested_ value
+            }
+        }
     } else {
         config = DEFAULT_MODEL_CONFIG;
         ESP_LOGW(TAG, "Model type '%s' not found, using default config: %s", 
                 model_type_.c_str(), config.description.c_str());
     }
 
-    // Allocate tensor arena
+    // Allocate tensor arena with the determined size
     tensor_arena_allocation_ = MemoryManager::allocate_tensor_arena(tensor_arena_size_requested_);
     if (!tensor_arena_allocation_) {
         ESP_LOGE(TAG, "Failed to allocate tensor arena");
@@ -449,9 +496,9 @@ bool MeterReaderTFLite::allocate_tensor_arena() {
     return true;
 }
 
-size_t MeterReaderTFLite::get_arena_peak_bytes() const {
-    return model_handler_.get_arena_peak_bytes();
-}
+// size_t MeterReaderTFLite::get_arena_peak_bytes() const {
+    // return model_handler_.get_arena_peak_bytes();
+// }
 
 
 // void MeterReaderTFLite::set_crop_zones_global(GlobalVarComponent<std::string> *crop_zones_global) {

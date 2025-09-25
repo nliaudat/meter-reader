@@ -357,12 +357,12 @@ ProcessedOutput ModelHandler::process_output(const float* output_data) const {
         // ESP_LOGD(TAG, "  Class %d: %.6f", i, output_data[i]);
     // }
 
+#endif
 
   // Debug: log output range
   float min_val = *std::min_element(output_data, output_data + num_classes);
   float max_val = *std::max_element(output_data, output_data + num_classes);
   ESP_LOGD(TAG, "Output range: min=%.2f, max=%.2f", min_val, max_val);
-#endif
 
   // Find the max value and its index
   int max_idx = 0;
@@ -535,11 +535,15 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
 
     TfLiteTensor* input = input_tensor();
     
-    // Validate input size
-    if (input_size != input->bytes) {
-        ESP_LOGE(TAG, "Input size mismatch! Expected %d, got %zu", input->bytes, input_size);
-        ESP_LOGE(TAG, "Expected elements: %d, Got elements: %zu", 
-                 input->bytes / sizeof(float), input_size / sizeof(float));
+    // Validate input size against the TFLite tensor's expected size in bytes
+    if (input_size != static_cast<size_t>(input->bytes)) {
+        ESP_LOGE(TAG, "Input size mismatch! Expected %d bytes, got %zu bytes", input->bytes, input_size);
+        // Log more details for debugging
+        ESP_LOGE(TAG, "Model input dimensions: %dx%dx%d", 
+                 get_input_width(), get_input_height(), get_input_channels());
+        ESP_LOGE(TAG, "Expected elements: %zu, Actual elements: %zu", 
+                 static_cast<size_t>(input->bytes) / (input->type == kTfLiteFloat32 ? sizeof(float) : sizeof(uint8_t)),
+                 input_size / (input->type == kTfLiteFloat32 ? sizeof(float) : sizeof(uint8_t)));
         return false;
     }
   
@@ -584,33 +588,6 @@ bool ModelHandler::invoke_model(const uint8_t* input_data, size_t input_size) {
   else if (input->type == kTfLiteFloat32) {
     
     float* dst = input->data.f;
-/*     if (config_.normalize) {
-      // Normalize to [0,1]
-      for (size_t i = 0; i < input_size; i++) {
-        dst[i] = static_cast<float>(input_data[i]) / 255.0f;
-      }
-      
-      ESP_LOGD(TAG, "First 5 float32 inputs (normalized):");
-      for (int i = 0; i < 5 && i < input_size; i++) {
-        ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
-      }
-    } else {
-      // Keep in [0,255] range (if model expects this)
-      for (size_t i = 0; i < input_size; i++) {
-        dst[i] = static_cast<float>(input_data[i]);
-      }
-      
-      ESP_LOGD(TAG, "First 5 float32 inputs (NOT normalized: [0-255 range]):");
-      for (int i = 0; i < 5 && i < input_size; i++) {
-        ESP_LOGD(TAG, "  [%d]: %.4f", i, dst[i]);
-      }
-    } */
-    
-    
-    // Input data is already normalized by image processor, just copy it
-    // for (size_t i = 0; i < input_size; i++) {
-      // dst[i] = static_cast<float>(input_data[i]);
-    // }
     
     // The loop is replaced with memcpy to fix a buffer overflow.
     memcpy(dst, input_data, input_size);

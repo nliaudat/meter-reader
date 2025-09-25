@@ -29,6 +29,7 @@ uint32_t crc32_runtime(const uint8_t* data, size_t length);
 
 struct ModelConfig {
   std::string description;
+  std::string tensor_arena_size;
   std::string output_processing; 
   float scale_factor;
   std::string input_type;

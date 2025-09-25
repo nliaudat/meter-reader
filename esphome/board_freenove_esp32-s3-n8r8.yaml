@@ -7,17 +7,17 @@
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
-  min_version: 2025.7.0
+  min_version: 2025.8.0
   name_add_mac_suffix: False # this appends to 'name' NOT 'friendly_name'
-  on_loop:
-    - lambda: |-
-        if(id(${id_prefix}wifi_component).is_connected()) {
-          if (id(${id_prefix}espcam_update)) {
-            id(${id_prefix}espcam).update_camera_parameters();
-            if(id(${id_prefix}debug)) { id(${id_prefix}espcam).dump_config(); }
-            id(${id_prefix}espcam_update) = false;
-          }
-        }
+  # on_loop:
+    # - lambda: |-
+        # if(id(${id_prefix}wifi_component).is_connected()) {
+          # if (id(${id_prefix}espcam_update)) {
+            # id(${id_prefix}espcam).update_camera_parameters();
+            # if(id(${id_prefix}debug)) { id(${id_prefix}espcam).dump_config(); }
+            # id(${id_prefix}espcam_update) = false;
+          # }
+        # }
 
   project:
     name: "nliaudat.meter-reader"

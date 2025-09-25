@@ -80,14 +80,28 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void set_confidence_threshold(float threshold) { confidence_threshold_ = threshold; }
   void set_tensor_arena_size(size_t size_bytes) { tensor_arena_size_requested_ = size_bytes; }
   void set_model(const uint8_t *model, size_t length);
-  void set_value_sensor(sensor::Sensor *sensor);
+  
+  /**
+   * @brief Set the value sensor for meter readings.
+   * @param sensor Pointer to the sensor component
+   */
+  void set_value_sensor(sensor::Sensor *sensor) { value_sensor_ = sensor; }
+  
+  /**
+   * @brief Set the confidence sensor for reading confidence scores.
+   * @param sensor Pointer to the sensor component
+   */
+  void set_confidence_sensor(sensor::Sensor *sensor) { confidence_sensor_ = sensor; }
+  
   void set_crop_zones(const std::string &zones_json);
   void set_camera_image_format(int width, int height, const std::string &pixel_format);
   void set_camera(esp32_camera::ESP32Camera *camera) { camera_ = camera; }
   void set_model_config(const std::string &model_type);
-  void set_confidence_sensor(sensor::Sensor *sensor) { confidence_sensor_ = sensor; }
   
-  // Crop zones
+  /**
+   * @brief Set crop zones from global string variable.
+   * @param zones_str String containing crop zones configuration
+   */
   void set_crop_zones_global_string(const std::string &zones_str) {
     crop_zone_handler_.set_global_zones_string(zones_str);
   }
@@ -98,6 +112,35 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   void print_debug_info();
   
   /**
+   * @brief Report current memory status and usage statistics.
+   */
+  void report_memory_status();
+  
+  /**
+   * @brief Get peak memory usage from tensor arena.
+   * @return Peak memory usage in bytes
+   */
+  // size_t get_arena_peak_bytes() const;
+  
+  /**
+   * @brief Get the number of frames processed.
+   * @return Number of frames processed
+   */
+  uint32_t get_frames_processed() const { return frames_processed_; }
+  
+  /**
+   * @brief Get the number of frames skipped.
+   * @return Number of frames skipped
+   */
+  uint32_t get_frames_skipped() const { return frames_skipped_; }
+  
+  /**
+   * @brief Get the tensor arena peak usage.
+   * @return Peak memory usage in bytes
+   */
+  size_t get_arena_peak_bytes() const { return model_handler_.get_arena_peak_bytes(); }
+  
+  /**
    * @brief Register debug service for external debugging.
    * @param comp Pointer to this component instance
    */
@@ -105,10 +148,32 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
     comp->print_debug_info();
   }
   
+  /**
+   * @brief Combine individual digit readings into final value.
+   * @param readings Vector of individual digit readings
+   * @return Combined meter reading value
+   */
+  float combine_readings(const std::vector<float> &readings);
+  
+  
+  /**
+   * @brief Get the last meter reading value.
+   * @return Last meter reading value
+   */
+  float get_last_reading() const { return last_reading_; }
+  
+  /**
+   * @brief Get the last confidence value.
+   * @return Last confidence value (0.0 to 1.0)
+   */
+  float get_last_confidence() const { return last_confidence_; }
+  
   // Model information getters
   int get_model_input_width() const { return model_handler_.get_input_width(); }
   int get_model_input_height() const { return model_handler_.get_input_height(); }
   int get_model_input_channels() const { return model_handler_.get_input_channels(); } 
+  
+
   
 #ifdef DEBUG_METER_READER_TFLITE
   void set_debug_image(const uint8_t* data, size_t size);
@@ -119,9 +184,11 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
 #endif
 
  protected:
-  sensor::Sensor *confidence_sensor_{nullptr};  ///< Sensor for confidence values
+  // sensor::Sensor *confidence_sensor_{nullptr};  ///< Sensor for confidence values
   uint32_t frames_processed_{0};                ///< Counter for successfully processed frames
   uint32_t frames_skipped_{0};                  ///< Counter for skipped frames
+  
+  
 #ifdef DEBUG_METER_READER_TFLITE  
   std::shared_ptr<camera::CameraImage> debug_image_;
 #endif
@@ -139,17 +206,6 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   bool load_model();
   
   /**
-   * @brief Report current memory status and usage statistics.
-   */
-  void report_memory_status();
-  
-  /**
-   * @brief Get peak memory usage from tensor arena.
-   * @return Peak memory usage in bytes
-   */
-  size_t get_arena_peak_bytes() const;
-  
-  /**
    * @brief Process a full camera image through the pipeline.
    * @param frame Shared pointer to the camera image to process
    */
@@ -164,12 +220,7 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
    */
   bool process_model_result(const ImageProcessor::ProcessResult& result, float* value, float* confidence);
   
-  /**
-   * @brief Combine individual digit readings into final value.
-   * @param readings Vector of individual digit readings
-   * @return Combined meter reading value
-   */
-  float combine_readings(const std::vector<float> &readings);
+  
 
   // Configuration parameters
   int camera_width_{0};                      ///< Camera image width in pixels
@@ -185,6 +236,12 @@ class MeterReaderTFLite : public PollingComponent, public camera::CameraImageRea
   const uint8_t *model_{nullptr};            ///< Pointer to model data
   size_t model_length_{0};                   ///< Size of model data in bytes
   sensor::Sensor *value_sensor_{nullptr};    ///< Sensor for meter values
+  sensor::Sensor *confidence_sensor_{nullptr};
+  
+  float last_reading_{0.0f};
+  float last_confidence_{0.0f};
+  
+  
   esp32_camera::ESP32Camera *camera_{nullptr}; ///< Camera component reference
   bool debug_mode_ = false;                  ///< Debug mode flag
 
