@@ -178,8 +178,9 @@ The component automatically detects and configures for various model architectur
 ```
 
 ## Image Processing Flowchart
-
+```mermaid
 graph TD
+
     A[Camera Capture] --> B{Image Format?}
     B -->|JPEG| C[JPEG Decoding]
     B -->|RGB888/RGB565| D[Direct Processing]
@@ -201,6 +202,7 @@ graph TD
     L --> M[Output Processing]
     M --> N[Confidence Check]
     N --> O[Publish Results]
+```
     
 ### Processing Steps Explained
 
@@ -347,5 +349,6 @@ This component is designed to be extensible for various TFLite applications. Con
 ---
 
 **Transform your ESP32 camera into an AI vision system!** 🤖✨
+
 
 *For questions and support, check the GitHub repository discussions section.*
