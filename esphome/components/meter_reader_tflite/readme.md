@@ -49,7 +49,7 @@ meter_reader_tflite:
   id: tflite_processor
   model: "model.tflite"  # Your TensorFlow Lite model
   camera_id: my_camera
-  tensor_arena_size: 512KB
+  # tensor_arena_size: "512KB" # OPTIONAL, set in model_config.h
   update_interval: 60s
 ```
 
@@ -86,7 +86,6 @@ meter_reader_tflite:
   id: object_detector
   model: "object_model.tflite" # Must be in same directory as YAML
   camera_id: my_camera
-  tensor_arena_size: 512KB
   update_interval: 30s
   confidence_threshold: 0.7
 ```
@@ -102,9 +101,34 @@ meter_reader_tflite:
   update_interval: 60s
   
   # Custom sensor for classification results
-  sensor:
-    - name: "Detection Confidence"
-      id: detection_confidence
+sensor:
+  - platform: template
+    name: "Meter Reading"
+    id: meter_value
+    unit_of_measurement: "units"
+    accuracy_decimals: 0
+    icon: "mdi:counter"
+    update_interval: 30s
+    lambda: |-
+      auto reader = id(meter_reader);
+      if (reader != nullptr) {
+        return reader->get_last_reading();
+      }
+      return 0.0;
+
+  - platform: template
+    name: "Meter Reading Confidence"
+    id: meter_confidence
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    icon: "mdi:percent"
+    update_interval: 30s
+    lambda: |-
+      auto reader = id(meter_reader);
+      if (reader != nullptr) {
+        return reader->get_last_confidence() * 100.0; // Convert to percentage
+      }
+      return 0.0;
 ```
 
 ### Multi-Zone Processing
@@ -133,6 +157,7 @@ meter_reader_tflite:
   tensor_arena_size: 512KB
   update_interval: 60s
   debug: true
+  debug_image: true # static embedded image
   debug_image_out_serial: true
   confidence_threshold: 0.8
 ```
@@ -145,10 +170,48 @@ The component automatically detects and configures for various model architectur
 
 ```cpp
 // Built-in model configurations (model_config.h)
-{"class100-0180", ...}     // 100-class classification (0.0-9.9)
-{"class10-0900", ...}      // 10-class classification (0-9)  
-{"mnist", ...}             // MNIST-style grayscale models
+{"class100-0180", ...}     // 100-class classification (0.0-9.9) - 512KB arena
+{"class100-0173", ...}     // 100-class classification (0.0-9.9) - 512KB arena  
+{"class10-0900", ...}      // 10-class classification (0-9) - 800KB arena
+{"class10-0810", ...}      // 10-class classification (0-9) - 800KB arena
+{"mnist", ...}             // MNIST-style grayscale models - 900KB arena
 ```
+
+## Image Processing Flowchart
+
+graph TD
+    A[Camera Capture] --> B{Image Format?}
+    B -->|JPEG| C[JPEG Decoding]
+    B -->|RGB888/RGB565| D[Direct Processing]
+    
+    C --> E[Convert to RGB888]
+    D --> F[Crop Zones]
+    E --> F
+    
+    F --> G[Scale to Model Input]
+    G --> H[Format Conversion]
+    H --> I{Model Input Type?}
+    
+    I -->|float32| J[Normalize 0-255 to 0.0-1.0]
+    I -->|uint8| K[Direct Copy]
+    
+    J --> L[TensorFlow Lite Inference]
+    K --> L
+    
+    L --> M[Output Processing]
+    M --> N[Confidence Check]
+    N --> O[Publish Results]
+    
+### Processing Steps Explained
+
+1. Image Acquisition: Capture frame from ESP32 camera (JPEG, RGB888, RGB565, or Grayscale)
+2. Format Conversion: Convert all formats to standardized RGB888
+3. Zone Cropping: Extract regions of interest based on configured crop zones
+4. Scaling: Resize cropped regions to match model input dimensions
+5. Normalization: Convert pixel values to model-expected range (0-255 or 0.0-1.0)
+6. Inference: Run TensorFlow Lite model on prepared input
+7. Post-processing: Convert raw model outputs to usable values and confidence scores
+8. Result Publication: Send processed results to ESPHome sensors
 
 ### Custom Model Support
 
@@ -194,6 +257,7 @@ esp32_camera:
 ```yaml
 meter_reader_tflite:
   debug: true
+  debug_image: true # static embedded image
   debug_image_out_serial: true
 ```
 
