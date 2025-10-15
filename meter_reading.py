@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Enhanced Meter Reading Detection Script
 
@@ -16,6 +15,7 @@ import os
 import sys
 import json
 import ast
+import csv
 from typing import List, Tuple, Optional, Dict, Any, Union
 from pathlib import Path
 from dataclasses import dataclass
@@ -44,11 +44,21 @@ class ModelConfig:
     description: str
     output_processing: str
     scale_factor: float
-    input_type: str
+    input_type: str  # 'float32', 'uint8', 'int8' - this determines quantization
     input_channels: int = 3
     input_size: Optional[Tuple[int, int]] = None
     normalize: bool = False
     invert: bool = False
+
+    @property
+    def quantized(self) -> bool:
+        """Check if model is quantized based on input type"""
+        return self.input_type in ['uint8', 'int8']
+    
+    @property
+    def esp_dl_quantization(self) -> bool:
+        """Check if model uses ESP-DL quantization (int8)"""
+        return self.input_type == 'int8'
 
 # Model Configuration
 MODELS: Dict[str, ModelConfig] = {
@@ -88,21 +98,49 @@ MODELS: Dict[str, ModelConfig] = {
         input_type="float32",
         input_channels=1,
         input_size=(28, 28),
-        normalize=True,
+        normalize=True, 
         invert=True
-    )
+    ),
+    "esp_quantization_ready": ModelConfig(
+        path=MODELS_DIR / "esp_quantization_ready.tflite",
+        description="esp_quantization_ready Digit Classifier",
+        output_processing="softmax",
+        scale_factor=1.0,
+        input_type="uint8",  
+        input_channels=1,
+        input_size=(32, 20),
+        normalize=True,
+        invert=False
+    ),
+    "digit_recognizer_v4": ModelConfig(
+        path=MODELS_DIR / "digit_recognizer_v4_10_GR_q.tflite",
+        description="digit_recognizer_v4 Digit Classifier",
+        output_processing="softmax",
+        scale_factor=1.0,
+        input_type="int8",
+        input_channels=1,
+        input_size=(32, 20),
+        normalize=True,
+        invert=False
+    ),
+    "digit_recognizer_v4_f": ModelConfig(
+        path=MODELS_DIR / "digit_recognizer_v4_10_GR_f.tflite",
+        description="digit_recognizer_v4 Digit Classifier",
+        output_processing="softmax",
+        scale_factor=1.0,
+        input_type="float32", 
+        input_channels=1,
+        input_size=(32, 20),
+        normalize=True,
+        invert=False
+    ),
 }
 
 class MeterReader:
     """Class for reading meter values using TensorFlow Lite models."""
     
     def __init__(self, model_type: str = DEFAULT_MODEL) -> None:
-        """
-        Initialize the MeterReader with a specific model type.
-        
-        Args:
-            model_type: One of the keys from the MODELS dictionary
-        """
+        """Initialize the MeterReader with a specific model type."""
         if model_type not in MODELS:
             raise ValueError(f"Unknown model type: {model_type}. Available: {list(MODELS.keys())}")
             
@@ -120,11 +158,40 @@ class MeterReader:
             self.input_details = self.interpreter.get_input_details()
             self.output_details = self.interpreter.get_output_details()
             
+            # Store quantization parameters
+            self.input_quantization = self.input_details[0].get('quantization', (1.0, 0))
+            self.output_quantization = self.output_details[0].get('quantization', (1.0, 0))
+            
+            # Log quantization info
+            self._log_quantization_info()
+            
             # Validate model configuration matches actual model
             self._validate_model_config()
             
+            # Debug logging
+            self._debug_model_info()
+            
         except Exception as e:
             raise RuntimeError(f"Failed to initialize model: {str(e)}")
+
+    def _log_quantization_info(self) -> None:
+        """Log detailed quantization information."""
+        if self.model_config.quantized:
+            input_scale, input_zero_point = self.input_quantization
+            output_scale, output_zero_point = self.output_quantization
+            
+            logger.info(f"Quantization detected:")
+            logger.info(f"  Input type: {self.model_config.input_type}")
+            logger.info(f"  Input scale: {input_scale}, zero_point: {input_zero_point}")
+            logger.info(f"  Output scale: {output_scale}, zero_point: {output_zero_point}")
+            
+            # Detect actual quantization scheme based on parameters
+            if input_zero_point == -128 and abs(input_scale - 1/255.0) < 1e-6:
+                logger.info("  Actual scheme: uint8 in int8 container [0,255] -> [-128,127]")
+            elif input_zero_point == 0 and self.model_config.esp_dl_quantization:
+                logger.info("  Actual scheme: True ESP-DL [-128,127]")
+            else:
+                logger.info("  Actual scheme: Standard quantization")
 
     def _validate_model_config(self) -> None:
         """Validate that the model configuration matches the actual model."""
@@ -137,8 +204,12 @@ class MeterReader:
         else:
             raise ValueError(f"Unsupported input shape: {input_shape}")
 
-        if self.model_config.input_size and (width, height) != self.model_config.input_size:
-            logger.warning(f"Model config input_size {self.model_config.input_size} doesn't match actual model input size {(width, height)}")
+        logger.info(f"Model actual input: {width}x{height}, channels: {channels}")
+
+        if self.model_config.input_size:
+            config_height, config_width = self.model_config.input_size
+            if (height, width) != (config_height, config_width):
+                logger.warning(f"Model config input_size {self.model_config.input_size} (HxW) doesn't match actual model input size {(height, width)} (HxW)")
 
         if channels != self.model_config.input_channels:
             logger.warning(f"Model config input_channels {self.model_config.input_channels} doesn't match actual model channels {channels}")
@@ -160,48 +231,139 @@ class MeterReader:
         else:
             raise ValueError(f"Unsupported input shape: {input_shape}")
 
-        # Resize maintaining aspect ratio if needed
-        if image.shape[0] > MAX_IMAGE_SIZE[1] or image.shape[1] > MAX_IMAGE_SIZE[0]:
-            logger.warning(f"Large image detected ({image.shape}), resizing for processing")
-            image = self._resize_image(image, MAX_IMAGE_SIZE)
+        # Use model config dimensions if specified, otherwise use model's actual dimensions
+        if self.model_config.input_size:
+            target_height, target_width = self.model_config.input_size
+        else:
+            target_height, target_width = height, width
 
-        # Resize to expected size
-        image = cv2.resize(image, (width, height))
+        logger.debug(f"Target size: {target_width}x{target_height}, Model expects: {width}x{height}")
 
-        # Handle grayscale or color
-        if channels == 1:
+        # Resize to expected size - OpenCV uses (width, height)
+        image = cv2.resize(image, (target_width, target_height))
+
+        # Handle channel conversion based on model requirements
+        if channels == 1 or self.model_config.input_channels == 1:
+            # Model expects grayscale
             if len(image.shape) == 3:
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            if len(input_shape) == 4:
-                image = np.expand_dims(image, axis=(0, -1))  # (1, H, W, 1)
-            else:
-                image = np.expand_dims(image, axis=0)        # (1, H, W)
-        elif channels == 3:
+            # Ensure single channel for 4D input
+            if len(image.shape) == 2 and len(input_shape) == 4:
+                image = np.expand_dims(image, axis=-1)  # Add channel dimension (H, W, 1)
+        elif channels == 3 or self.model_config.input_channels == 3:
+            # Model expects color (RGB)
             if len(image.shape) == 2:
+                # Convert grayscale to RGB by repeating channels
                 image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-            image = np.expand_dims(image, axis=0)            # (1, H, W, 3)
-        else:
-            raise ValueError(f"Unsupported number of channels: {channels}")
+            elif len(image.shape) == 3 and image.shape[2] == 1:
+                # Convert single channel to 3 channels
+                image = np.repeat(image, 3, axis=2)
+            # Ensure BGR to RGB conversion
+            if image.shape[2] == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        # Apply normalization if configured
+        # Apply preprocessing operations
         if self.model_config.invert:
             image = cv2.bitwise_not(image)
-        if self.model_config.normalize:
+        
+        # Handle quantization and normalization - SIMPLIFIED LOGIC
+        if self.model_config.quantized:
+            # Always normalize to [0, 1] first for consistency
             image = image.astype('float32') / 255.0
+            
+            # Apply quantization based on model requirements
+            input_scale, input_zero_point = self.input_quantization
+            
+            if input_dtype == np.uint8:
+                # Standard uint8 quantization [0, 255]
+                image = (image * 255.0).astype(np.uint8)
+            elif input_dtype == np.int8:
+                # int8 quantization - handle both ESP-DL and uint8-in-int8 cases
+                if input_zero_point == -128 and abs(input_scale - 1/255.0) < 1e-6:
+                    # uint8 in int8 container
+                    image = (image * 255.0).astype(np.uint8)
+                    image = image.astype(np.float32)
+                    image = (image / input_scale + input_zero_point).astype(np.int8)
+                else:
+                    # True ESP-DL quantization
+                    image = (image * 255.0 - 128.0).astype(np.int8)
+        else:
+            # For non-quantized models
+            if self.model_config.normalize:
+                image = image.astype('float32') / 255.0
+            else:
+                image = image.astype('float32')
+        
+        # Add batch dimension
+        if len(input_shape) == 4:
+            image = np.expand_dims(image, axis=0)  # Add batch dimension (1, H, W, C)
+        elif len(input_shape) == 3:
+            image = np.expand_dims(image, axis=0)  # Add batch dimension (1, H, W)
 
-        return image.astype(input_dtype)
+        logger.debug(f"Final preprocessed image shape: {image.shape}, dtype: {image.dtype}")
+        logger.debug(f"Image value range: [{np.min(image)}, {np.max(image)}]")
+        return image
 
-    def _resize_image(self, image: np.ndarray, max_size: Tuple[int, int]) -> np.ndarray:
-        """Resize image maintaining aspect ratio."""
-        h, w = image.shape[:2]
-        ratio = min(max_size[0]/w, max_size[1]/h)
-        new_size = (int(w * ratio), int(h * ratio))
-        return cv2.resize(image, new_size)
+    def _validate_input_image(self, image: np.ndarray) -> None:
+        """Validate input image dimensions and type."""
+        if image is None or image.size == 0:
+            raise ValueError("Invalid or empty image provided")
+        
+        # Check if image dimensions match expected input size
+        if self.model_config.input_size:
+            expected_height, expected_width = self.model_config.input_size
+            if image.shape[:2] != (expected_height, expected_width):
+                logger.warning(f"Image size {image.shape[:2]} (HxW) doesn't match expected size {(expected_height, expected_width)} (HxW)")
+                
+    def _debug_model_info(self) -> None:
+        """Log detailed model information for debugging."""
+        logger.debug("=== Model Input Details ===")
+        logger.debug(f"Input shape: {self.input_details[0]['shape']}")
+        logger.debug(f"Input dtype: {self.input_details[0]['dtype']}")
+        logger.debug(f"Input name: {self.input_details[0]['name']}")
+        if 'quantization' in self.input_details[0]:
+            logger.debug(f"Input quantization: {self.input_details[0]['quantization']}")
+        
+        logger.debug("=== Model Output Details ===")
+        logger.debug(f"Output shape: {self.output_details[0]['shape']}")
+        logger.debug(f"Output dtype: {self.output_details[0]['dtype']}")
+        logger.debug(f"Output name: {self.output_details[0]['name']}")
+        if 'quantization' in self.output_details[0]:
+            logger.debug(f"Output quantization: {self.output_details[0]['quantization']}")
+        
+        logger.debug("=== Model Configuration ===")
+        logger.debug(f"Model type: {self.model_type}")
+        logger.debug(f"Input size: {self.model_config.input_size}")
+        logger.debug(f"Input channels: {self.model_config.input_channels}")
+        logger.debug(f"Input type: {self.model_config.input_type}")
+        logger.debug(f"Quantized: {self.model_config.quantized}")
+        logger.debug(f"ESP-DL Quantization: {self.model_config.esp_dl_quantization}")
+
+    def _dequantize_output(self, output: np.ndarray) -> np.ndarray:
+        """Dequantize output if the model is quantized."""
+        if self.model_config.quantized and self.output_details[0]['dtype'] in [np.uint8, np.int8]:
+            output_scale, output_zero_point = self.output_quantization
+            return (output.astype(np.float32) - output_zero_point) * output_scale
+        return output.astype(np.float32)
 
     def predict(self, image: np.ndarray) -> Tuple[float, float]:
         """Predict meter reading from an image with proper output processing."""
         try:
+            # Validate input first
+            self._validate_input_image(image)
+            
             input_image = self.preprocess_image(image)
+            
+            # Verify shape matches expected input shape
+            expected_shape = self.input_details[0]['shape']
+            if input_image.shape != tuple(expected_shape):
+                logger.warning(f"Input shape {input_image.shape} doesn't match expected {tuple(expected_shape)}")
+                # Try to reshape if possible
+                if input_image.size == np.prod(expected_shape):
+                    input_image = input_image.reshape(expected_shape)
+                    logger.info(f"Reshaped input to: {input_image.shape}")
+                else:
+                    raise ValueError(f"Cannot reshape input - total elements don't match")
             
             # Set input tensor and run inference
             self.interpreter.set_tensor(self.input_details[0]['index'], input_image)
@@ -210,22 +372,25 @@ class MeterReader:
             # Get model output
             output = self.interpreter.get_tensor(self.output_details[0]['index'])
             
+            # Dequantize output if needed
+            output_dequantized = self._dequantize_output(output)
+            
             # Process output based on model configuration
             if self.model_config.output_processing == "direct_class":
                 # For MNIST-style direct class prediction
-                probabilities = tf.nn.softmax(output[0]).numpy()
+                probabilities = tf.nn.softmax(output_dequantized[0]).numpy()
                 predicted_class = np.argmax(probabilities)
                 confidence = np.max(probabilities)
                 meter_reading = float(predicted_class)
             elif self.model_config.output_processing == "softmax":
-                # For models using softmax without scaling
-                probabilities = tf.nn.softmax(output[0]).numpy()
+                # For models using softmax without scaling (like esp_quantization_ready)
+                probabilities = tf.nn.softmax(output_dequantized[0]).numpy()
                 predicted_class = np.argmax(probabilities)
                 confidence = np.max(probabilities)
                 meter_reading = float(predicted_class)
             else:  # Default case: "softmax_scale10"
                 # For original classification models with 10x scaling
-                probabilities = tf.nn.softmax(output[0]).numpy()
+                probabilities = tf.nn.softmax(output_dequantized[0]).numpy()
                 predicted_class = np.argmax(probabilities)
                 confidence = np.max(probabilities)
                 meter_reading = float(predicted_class) / self.model_config.scale_factor
@@ -269,10 +434,18 @@ def load_regions(regions_source: Union[str, Path]) -> List[Tuple[int, int, int, 
         logger.error(f"Error loading regions: {e}", exc_info=True)
         return []
 
-def load_image(image_source: Union[str, Path]) -> Optional[np.ndarray]:
-    """Load image from local file or remote URL."""
+def load_image(image_source: Union[str, Path], input_channels: int = 1) -> Optional[np.ndarray]:
+    """Load image from local file or remote URL based on model's input requirements."""
     try:
         image_source_str = str(image_source)
+        
+        # Determine loading mode based on input_channels
+        if input_channels == 1:
+            # Load as grayscale
+            load_mode = cv2.IMREAD_GRAYSCALE
+        else:
+            # Load as color (BGR)
+            load_mode = cv2.IMREAD_COLOR
         
         if image_source_str.startswith(('http://', 'https://')):
             # Load from URL
@@ -286,7 +459,7 @@ def load_image(image_source: Union[str, Path]) -> Optional[np.ndarray]:
                 return None
                 
             image_array = np.asarray(bytearray(response.content), dtype=np.uint8)
-            image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+            image = cv2.imdecode(image_array, load_mode)
         else:
             # Load from file
             image_path = Path(image_source_str)
@@ -294,16 +467,21 @@ def load_image(image_source: Union[str, Path]) -> Optional[np.ndarray]:
                 logger.error(f"Image file not found: {image_path}")
                 return None
                 
-            image = cv2.imread(str(image_path))
+            image = cv2.imread(str(image_path), load_mode)
         
         if image is None:
             logger.error(f"Unable to decode image from: {image_source_str}")
             return None
             
+        # Convert BGR to RGB for color images if needed
+        if input_channels == 3 and len(image.shape) == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
         # Check image size
         if image.nbytes > 50 * 1024 * 1024:  # 50MB
             logger.warning("Large image detected, consider resizing")
             
+        logger.info(f"Loaded image: {image_source_str}, shape: {image.shape}, channels: {1 if len(image.shape) == 2 else image.shape[2]}")
         return image
         
     except requests.exceptions.RequestException as e:
@@ -432,8 +610,11 @@ def process_image(
         logger.error(f"Error concatenating readings: {str(e)}")
         results["final_reading"] = -1
 
-    # Generate result image
+    # Generate result image (convert back to BGR for OpenCV display)
     results["result_image"] = image.copy()
+    if len(results["result_image"].shape) == 3 and results["result_image"].shape[2] == 3:
+        results["result_image"] = cv2.cvtColor(results["result_image"], cv2.COLOR_RGB2BGR)
+        
     for i, (region, reading) in enumerate(zip(valid_regions, results["raw_readings"])):
         x1, y1, x2, y2 = region
         cv2.putText(results["result_image"], f"{reading:.1f}", (x1, y1 - 10), 
@@ -464,7 +645,7 @@ def test_all_models(
         expected_result: The real number read by human (for comparison)
     """
     # Load image and regions once
-    image = load_image(image_source)
+    image = load_image(image_source, input_channels=1)  # Default to grayscale
     if image is None:
         logger.error(f"Failed to load image from {image_source}")
         return
@@ -522,7 +703,6 @@ def test_all_models(
 
     # Save results to CSV
     try:
-        import csv
         with open(output_file, 'w', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=headers)
             writer.writeheader()
@@ -589,8 +769,9 @@ def main() -> None:
         # Initialize the MeterReader
         meter_reader = MeterReader(args.model)
 
-        # Load the image
-        image = load_image(args.image_source)
+        # Load the image with appropriate channels based on model
+        input_channels = meter_reader.model_config.input_channels
+        image = load_image(args.image_source, input_channels)
         if image is None:
             logger.error(f"Unable to load image from: {args.image_source}")
             sys.exit(1)
