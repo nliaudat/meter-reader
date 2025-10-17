@@ -1,6 +1,7 @@
 # draw_regions.py
 import cv2
 import json
+import argparse
 
 # Global variables
 regions = []
@@ -77,8 +78,13 @@ def show_instructions(image):
 def main():
     global img
 
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Draw regions on an image')
+    parser.add_argument('--img', type=str, default='sample.jpg', help='Path to the input image (default: sample.jpg)')
+    args = parser.parse_args()
+
     # Load the image
-    image_path = "sample.jpg"  # Replace with your image path
+    image_path = args.img
     img = cv2.imread(image_path)
     if img is None:
         print(f"Error: Unable to load image from {image_path}.")
@@ -93,6 +99,7 @@ def main():
     print("1. Click and drag to draw a rectangle.")
     print("2. Press 's' to save regions after last draw.")
     print("3. Press 'q' to quit and save.")
+    print(f"Loaded image: {image_path}")
 
     while True:
         # Display the image with regions and instructions
