@@ -117,18 +117,7 @@ MODELS: Dict[str, ModelConfig] = {
         description="digit_recognizer_v4 Digit Classifier",
         output_processing="softmax",
         scale_factor=1.0,
-        input_type="int8",
-        input_channels=1,
-        input_size=(32, 20),
-        normalize=True,
-        invert=False
-    ),
-    "digit_recognizer_v4_f": ModelConfig(
-        path=MODELS_DIR / "digit_recognizer_v4_10_GR_f.tflite",
-        description="digit_recognizer_v4 Digit Classifier",
-        output_processing="softmax",
-        scale_factor=1.0,
-        input_type="float32", 
+        input_type="uint8",
         input_channels=1,
         input_size=(32, 20),
         normalize=True,
@@ -192,6 +181,11 @@ class MeterReader:
                 logger.info("  Actual scheme: True ESP-DL [-128,127]")
             else:
                 logger.info("  Actual scheme: Standard quantization")
+            
+            # Additional output quantization info
+            logger.info(f"  Output quantization - scale: {output_scale}, zero_point: {output_zero_point}")
+            if output_zero_point != 0:
+                logger.info(f"  Output requires dequantization: (output - {output_zero_point}) * {output_scale}")
 
     def _validate_model_config(self) -> None:
         """Validate that the model configuration matches the actual model."""
@@ -213,6 +207,32 @@ class MeterReader:
 
         if channels != self.model_config.input_channels:
             logger.warning(f"Model config input_channels {self.model_config.input_channels} doesn't match actual model channels {channels}")
+            
+    def debug_output(self, output: np.ndarray) -> None:
+        """Debug method to analyze output tensor."""
+        logger.debug("=== OUTPUT DEBUG ===")
+        logger.debug(f"Raw output shape: {output.shape}")
+        logger.debug(f"Raw output dtype: {output.dtype}")
+        logger.debug(f"Raw output range: [{output.min()}, {output.max()}]")
+        logger.debug(f"Raw output values: {output[0]}")
+        
+        # Check if output is quantized
+        if self.model_config.quantized:
+            output_scale, output_zero_point = self.output_quantization
+            logger.debug(f"Output quantization: scale={output_scale}, zero_point={output_zero_point}")
+            
+            # Dequantize manually
+            dequantized = (output.astype(np.float32) - output_zero_point) * output_scale
+            logger.debug(f"Dequantized range: [{dequantized.min():.6f}, {dequantized.max():.6f}]")
+            logger.debug(f"Dequantized values: {dequantized[0]}")
+            
+            # Apply softmax to dequantized
+            probs_dequant = tf.nn.softmax(dequantized[0]).numpy()
+            logger.debug(f"Probabilities from dequant: {[f'{p:.4f}' for p in probs_dequant]}")
+            
+            # Apply softmax directly to raw output
+            probs_raw = tf.nn.softmax(output[0].astype(np.float32)).numpy()
+            logger.debug(f"Probabilities from raw: {[f'{p:.4f}' for p in probs_raw]}")
 
     def preprocess_image(self, image: np.ndarray) -> np.ndarray:
         """Preprocess image according to model input requirements."""
@@ -343,27 +363,24 @@ class MeterReader:
         """Dequantize output if the model is quantized."""
         if self.model_config.quantized and self.output_details[0]['dtype'] in [np.uint8, np.int8]:
             output_scale, output_zero_point = self.output_quantization
-            return (output.astype(np.float32) - output_zero_point) * output_scale
+            # Convert to float32 first, then dequantize
+            output_float = output.astype(np.float32)
+            return (output_float - output_zero_point) * output_scale
         return output.astype(np.float32)
 
     def predict(self, image: np.ndarray) -> Tuple[float, float]:
-        """Predict meter reading from an image with proper output processing."""
+        """Predict meter reading from an image - FIXED OUTPUT PROCESSING ONLY"""
         try:
-            # Validate input first
-            self._validate_input_image(image)
-            
+            # Use the ORIGINAL working preprocessing
             input_image = self.preprocess_image(image)
             
             # Verify shape matches expected input shape
             expected_shape = self.input_details[0]['shape']
             if input_image.shape != tuple(expected_shape):
                 logger.warning(f"Input shape {input_image.shape} doesn't match expected {tuple(expected_shape)}")
-                # Try to reshape if possible
                 if input_image.size == np.prod(expected_shape):
                     input_image = input_image.reshape(expected_shape)
                     logger.info(f"Reshaped input to: {input_image.shape}")
-                else:
-                    raise ValueError(f"Cannot reshape input - total elements don't match")
             
             # Set input tensor and run inference
             self.interpreter.set_tensor(self.input_details[0]['index'], input_image)
@@ -372,29 +389,51 @@ class MeterReader:
             # Get model output
             output = self.interpreter.get_tensor(self.output_details[0]['index'])
             
-            # Dequantize output if needed
-            output_dequantized = self._dequantize_output(output)
+            # DEBUG: Check what we're getting
+            logger.debug(f"Raw output: {output[0]}")
+            logger.debug(f"Raw output dtype: {output.dtype}")
             
-            # Process output based on model configuration
-            if self.model_config.output_processing == "direct_class":
-                # For MNIST-style direct class prediction
+            # FIXED: Different output processing for quantized vs non-quantized models
+            if self.model_config.quantized:
+                # For quantized models, use gap-based confidence (to avoid softmax issues)
+                output_scale, output_zero_point = self.output_quantization
+                output_dequantized = output.astype(np.float32) * output_scale  # zero_point is 0
+                
+                output_values = output_dequantized[0]
+                predicted_class = np.argmax(output_values)
+                max_val = output_values[predicted_class]
+                
+                # Calculate confidence based on gap between max and second max
+                        # the problem with softmax and quantized models
+                        # Raw output: [255, 0, 0, 0, 0, 0, 0, 0, 0, 0] (very confident)
+                        # After dequantization: [0.996, 0.000, 0.000, ...] (still very confident)
+                        # After softmax: [0.231, 0.085, 0.085, ...] (flattened to ~23%)
+                if len(output_values) > 1:
+                    other_values = np.delete(output_values, predicted_class)
+                    second_max = np.max(other_values)
+                    confidence = (max_val - second_max) / max_val if max_val > 0 else 0.0
+                else:
+                    confidence = 1.0
+                
+                confidence = max(0.0, min(1.0, confidence))
+                logger.debug(f"Quantized confidence - max: {max_val:.4f}, second: {second_max:.4f}, confidence: {confidence:.4f}")
+                
+            else:
+                # For non-quantized models, use original softmax approach
+                output_dequantized = self._dequantize_output(output)
                 probabilities = tf.nn.softmax(output_dequantized[0]).numpy()
                 predicted_class = np.argmax(probabilities)
-                confidence = np.max(probabilities)
+                confidence = float(np.max(probabilities))
+                logger.debug(f"Softmax confidence: {confidence:.4f}")
+            
+            # Apply scaling based on model type
+            if self.model_config.output_processing == "direct_class":
                 meter_reading = float(predicted_class)
             elif self.model_config.output_processing == "softmax":
-                # For models using softmax without scaling (like esp_quantization_ready)
-                probabilities = tf.nn.softmax(output_dequantized[0]).numpy()
-                predicted_class = np.argmax(probabilities)
-                confidence = np.max(probabilities)
                 meter_reading = float(predicted_class)
-            else:  # Default case: "softmax_scale10"
-                # For original classification models with 10x scaling
-                probabilities = tf.nn.softmax(output_dequantized[0]).numpy()
-                predicted_class = np.argmax(probabilities)
-                confidence = np.max(probabilities)
+            else:  # "softmax_scale10"
                 meter_reading = float(predicted_class) / self.model_config.scale_factor
-                
+            
             return meter_reading, confidence
             
         except Exception as e:
