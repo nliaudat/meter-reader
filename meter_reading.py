@@ -101,9 +101,9 @@ MODELS: Dict[str, ModelConfig] = {
         normalize=True, 
         invert=True
     ),
-    "esp_quantization_ready": ModelConfig(
-        path=MODELS_DIR / "esp_quantization_ready.tflite",
-        description="esp_quantization_ready Digit Classifier",
+    "digit_recognizer_v4_10cls_GRAY": ModelConfig(
+        path=MODELS_DIR / "digit_recognizer_v4_10cls_GRAY.tflite",
+        description="digit_recognizer_v4 Digit Classifier GRAY",
         output_processing="softmax",
         scale_factor=1.0,
         input_type="uint8",  
@@ -112,13 +112,13 @@ MODELS: Dict[str, ModelConfig] = {
         normalize=True,
         invert=False
     ),
-    "digit_recognizer_v4": ModelConfig(
-        path=MODELS_DIR / "digit_recognizer_v4_10_GR_q.tflite",
-        description="digit_recognizer_v4 Digit Classifier",
+    "digit_recognizer_v4_10cls_RGB": ModelConfig(
+        path=MODELS_DIR / "digit_recognizer_v4_10cls_RGB.tflite",
+        description="digit_recognizer_v4 Digit Classifier RGB",
         output_processing="softmax",
         scale_factor=1.0,
         input_type="uint8",
-        input_channels=1,
+        input_channels=3,
         input_size=(32, 20),
         normalize=True,
         invert=False
@@ -393,6 +393,23 @@ class MeterReader:
             logger.debug(f"Raw output: {output[0]}")
             logger.debug(f"Raw output dtype: {output.dtype}")
             
+            # if self.model_config.quantized:
+                # # Dequantize output
+                # output_scale, output_zero_point = self.output_quantization
+                # output_dequantized = (output.astype(np.float32) - output_zero_point) * output_scale
+
+                # # Directly use dequantized values (no softmax)
+                # output_values = output_dequantized[0]
+                # predicted_class = int(np.argmax(output_values))
+                # confidence = float(np.max(output_values))
+
+                # # Normalize confidence to [0,1] range (optional, prevents huge float scales)
+                # if np.max(output_values) > 0:
+                    # confidence = confidence / np.sum(output_values)
+
+                # logger.debug(f"Quantized output values: {output_values}")
+                # logger.debug(f"Predicted class: {predicted_class}, confidence: {confidence:.4f}")
+                
             if self.model_config.quantized:
                 # Dequantize output
                 output_scale, output_zero_point = self.output_quantization
@@ -401,14 +418,21 @@ class MeterReader:
                 # Directly use dequantized values (no softmax)
                 output_values = output_dequantized[0]
                 predicted_class = int(np.argmax(output_values))
-                confidence = float(np.max(output_values))
+                raw_confidence = float(np.max(output_values))
 
-                # Normalize confidence to [0,1] range (optional, prevents huge float scales)
-                if np.max(output_values) > 0:
-                    confidence = confidence / np.sum(output_values)
+                # Better normalization: scale to [0,1] based on expected output range
+                # For your quantized model, outputs are typically in [0, 1] after dequantization
+                # So we can just clamp to [0,1] or use min-max scaling
+                confidence = max(0.0, min(1.0, raw_confidence))
+                
+                # Alternative: min-max normalization if outputs can be negative
+                # if output_values.max() > output_values.min():
+                #     confidence = (raw_confidence - output_values.min()) / (output_values.max() - output_values.min())
+                # else:
+                #     confidence = 1.0
 
                 logger.debug(f"Quantized output values: {output_values}")
-                logger.debug(f"Predicted class: {predicted_class}, confidence: {confidence:.4f}")
+                logger.debug(f"Predicted class: {predicted_class}, raw_confidence: {raw_confidence:.4f}, normalized: {confidence:.4f}")
                 
             else:
                 # For non-quantized models, use original softmax approach
