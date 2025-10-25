@@ -393,30 +393,22 @@ class MeterReader:
             logger.debug(f"Raw output: {output[0]}")
             logger.debug(f"Raw output dtype: {output.dtype}")
             
-            # FIXED: Different output processing for quantized vs non-quantized models
             if self.model_config.quantized:
-                # For quantized models, use gap-based confidence (to avoid softmax issues)
+                # Dequantize output
                 output_scale, output_zero_point = self.output_quantization
-                output_dequantized = output.astype(np.float32) * output_scale  # zero_point is 0
-                
+                output_dequantized = (output.astype(np.float32) - output_zero_point) * output_scale
+
+                # Directly use dequantized values (no softmax)
                 output_values = output_dequantized[0]
-                predicted_class = np.argmax(output_values)
-                max_val = output_values[predicted_class]
-                
-                # Calculate confidence based on gap between max and second max
-                        # the problem with softmax and quantized models
-                        # Raw output: [255, 0, 0, 0, 0, 0, 0, 0, 0, 0] (very confident)
-                        # After dequantization: [0.996, 0.000, 0.000, ...] (still very confident)
-                        # After softmax: [0.231, 0.085, 0.085, ...] (flattened to ~23%)
-                if len(output_values) > 1:
-                    other_values = np.delete(output_values, predicted_class)
-                    second_max = np.max(other_values)
-                    confidence = (max_val - second_max) / max_val if max_val > 0 else 0.0
-                else:
-                    confidence = 1.0
-                
-                confidence = max(0.0, min(1.0, confidence))
-                logger.debug(f"Quantized confidence - max: {max_val:.4f}, second: {second_max:.4f}, confidence: {confidence:.4f}")
+                predicted_class = int(np.argmax(output_values))
+                confidence = float(np.max(output_values))
+
+                # Normalize confidence to [0,1] range (optional, prevents huge float scales)
+                if np.max(output_values) > 0:
+                    confidence = confidence / np.sum(output_values)
+
+                logger.debug(f"Quantized output values: {output_values}")
+                logger.debug(f"Predicted class: {predicted_class}, confidence: {confidence:.4f}")
                 
             else:
                 # For non-quantized models, use original softmax approach
