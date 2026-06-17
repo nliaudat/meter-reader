@@ -51,7 +51,8 @@ For testing all models :
 
 ## Sources and inspiration: 
 * The idea : https://github.com/jomjol/AI-on-the-edge-device/
-* The AI model : https://github.com/haverland/Tenth-of-step-of-a-meter-digit/tree/master/output
+* The original AI model : https://github.com/haverland/Tenth-of-step-of-a-meter-digit/tree/master/output
+* New AI models : https://github.com/nliaudat/digit_recognizer
 
 ## Licence: 
 * Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC-BY-NC-SA)
